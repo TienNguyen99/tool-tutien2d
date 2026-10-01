@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Tiên Lộ Trợ Thủ",
+  "version": "1.3.8",
+  "description": "Kết nối dữ liệu Tu Tiên 2D với trợ thủ cục bộ qua runtime PNTT.",
+  "content_scripts": [
+    {
+      "matches": ["https://tutien2d.online/*"],
+      "js": ["hook.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ]
+}

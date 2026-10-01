@@ -1,0 +1,13 @@
+CAI TIEN LO TRO THU TREN CHROME / EDGE
+
+1. Mo chrome://extensions hoac edge://extensions.
+2. Bat Developer mode.
+3. Bam Load unpacked.
+4. Chon thu muc D:\Tool-tutien2d\extension.
+5. Tai lai https://tutien2d.online/?choi.
+6. Doi game tai xong, bam nut Tro Thu o goc phai duoi.
+7. Chay D:\Tool-tutien2d\start-tienlo.bat neu trang tro thu chua mo.
+
+Khong can bookmark Dan Nhap Nhan Vat nua.
+Khi cap nhat hook.js, bam Reload extension va tai lai trang game.
+Extension chi chay tren https://tutien2d.online/*.
