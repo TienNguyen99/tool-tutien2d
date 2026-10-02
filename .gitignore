@@ -12,4 +12,8 @@ Thumbs.db
 node_modules/
 dist/
 coverage/
+data/logs/
+data/crawl/
+data/game-updates.json
+data/private/
 

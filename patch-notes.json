@@ -1,0 +1,8 @@
+[
+  {"version":"1.3.27","title":"Trang patch note admin","changes":["Thêm trang patch note tự đồng bộ mỗi 5 giây","Hiển thị trạng thái kiểm chứng và thời điểm đồng bộ"],"verification":"Kiểm tra cú pháp và cấu trúc dữ liệu; chưa kiểm chứng giao diện trong trình duyệt","status":"implemented"},
+  {"version":"1.3.26","title":"Bộ nhớ bản đồ và crawl dữ liệu","changes":["Lưu cổng và dữ liệu bản đồ trên server","Thu thập 57 module client công khai, trích xuất 13 map","Còn 11 cấu trúc động chưa giải mã"],"verification":"Test trích xuất tĩnh và đồ thị bản đồ đạt; chưa kiểm chứng trong game","status":"partial"},
+  {"version":"1.3.25","title":"Học điểm lựa chọn hội thoại","changes":["Sau 6 giây thử một lựa chọn phù hợp","Cập nhật điểm thưởng/phạt và lưu kết quả server"],"verification":"Test mô phỏng đạt; chưa kiểm chứng trong game","status":"implemented"},
+  {"version":"1.3.23","title":"Đường đi có kiểm tra va chạm","changes":["Áp dụng cho đánh, nhặt, đổi map, tự vệ và rút lui"],"verification":"Test đường vòng và vùng không nối đạt; chưa kiểm chứng trong game","status":"implemented"},
+  {"version":"1.3.22","title":"Hit-and-run","changes":["Kiểm tra quái áp sát mỗi 150ms","Chọn đường né theo khoảng cách an toàn"],"verification":"Test mô phỏng đạt; chưa kiểm chứng trong game","status":"implemented"},
+  {"version":"1.3.20","title":"Thống kê nhân vật","changes":["Đạo Hạnh/giờ, quái/giờ và Linh Thạch/giờ","Chỉ đếm quái server xác nhận do nhân vật hạ"],"verification":"Test thống kê đạt; chưa đối chiếu đầy đủ trong game","status":"implemented"}
+]

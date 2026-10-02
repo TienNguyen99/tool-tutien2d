@@ -1,0 +1,20 @@
+const assert=require('node:assert/strict');
+const {createPlanner,sanitize,validate}=require('../tools/ai-planner.cjs');
+const input={key:'quest8',quest:'Thu hái Linh Điệp',options:['Gieo Linh Điệp','Gieo Huyết Thảo','Lui Bước','Xoá đồ']};
+(async()=>{
+  let calls=0;
+  const fake=async()=>{calls++;return {ok:true,json:async()=>({message:{content:JSON.stringify({action:'select_dialog_option',optionIndex:0,confidence:.9,reason:'Đúng cây quest'})}})}};
+  const planner=createPlanner({model:'test',fetchImpl:fake});
+  assert.equal((await planner(input)).source,'llm');assert.equal((await planner(input)).decision.optionIndex,0);
+  assert.equal(calls,1,'Repeated context uses cache');
+  for(const index of [2,3,99])assert.equal(validate({action:'select_dialog_option',optionIndex:index,confidence:1},sanitize(input)),null);
+  assert.equal(validate({action:'execute_code',optionIndex:0,confidence:1},sanitize(input)),null);
+  const failed=createPlanner({model:'test',fetchImpl:fake,readMemory:()=>[{key:'quest8',reason:'choice_result',label:'Gieo Linh Điệp',outcome:'fail',value:-4}]});
+  assert.equal((await failed(input)).source,'fallback','Reject model selecting known failure');
+  const memory=createPlanner({fetchImpl:()=>{throw Error('Must not call model')},readMemory:()=>[{key:'quest8',reason:'choice_result',label:'Gieo Huyết Thảo',outcome:'success',value:4}]});
+  assert.equal((await memory(input)).source,'memory');
+  assert.equal((await createPlanner({model:'test',fetchImpl:async()=>{throw Error('offline')}})(input)).source,'fallback');
+  assert.equal((await createPlanner({model:''})(input)).source,'fallback');
+  assert.throws(()=>sanitize({key:'x',options:Array(41).fill('a')}));
+  console.log('AI planner validation, memory, cache and offline fallback passed');
+})().catch(error=>{console.error(error);process.exitCode=1});

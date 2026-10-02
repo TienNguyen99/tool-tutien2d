@@ -1,0 +1,9 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Quản lý clone</title><link rel="stylesheet" href="assets/css/patch-notes.css"></head><body><main>
+<header><h1>5 clone · Auto Farm</h1><a href="index.html">Dashboard</a></header>
+<p>Mỗi profile Chrome đăng nhập một tài khoản và nạp extension. Thông tin được lưu trên server cục bộ khi bạn bấm Lưu.</p>
+<section aria-label="Thông tin 5 tài khoản"><h2>Tài khoản clone</h2><form id="accounts" autocomplete="off"></form>
+<button id="saveAccounts" type="button">Lưu tài khoản vào server</button><button id="clearAccounts" type="button">Xóa ô đã nhập</button><p id="accountStatus" role="status"></p><p class="hint">Mỗi lần lưu thay thế danh sách cũ. Mật khẩu mã hóa bằng Windows DPAPI theo người dùng Windows hiện tại; không đưa lên GitHub. Chưa tự đăng nhập Chrome. Nút Xóa ô không xóa dữ liệu server.</p></section>
+<button id="launch" type="button">Mở Chrome cho tài khoản đã lưu</button><p class="hint">Lần đầu có thể cần nạp extension trong từng Chrome. Tự xác nhận điều khoản/CAPTCHA nếu game yêu cầu. Không tự bật Farm.</p>
+<div class="toolbar"><button id="farm">Farm tất cả</button><button id="stop">Dừng tất cả</button></div><p id="status" role="status">Đang kết nối…</p><section id="clones"></section>
+<p class="hint">Cùng khu do bạn chọn trong game. Bản đầu chưa chia mục tiêu giữa clone; lệnh được gửi tới phiên đang online.</p>
+</main><script type="module" src="assets/js/clones.js"></script></body></html>
