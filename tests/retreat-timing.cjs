@@ -15,9 +15,9 @@ vm.runInContext(source.slice(source.indexOf('  function retreatTick('),source.in
 assert.equal(context.retreatTick(),false,'Low HP alone must never start running');
 assert.equal(routes,0);assert.equal(context.avoidedEnemies.size,0);
 player.hp=100;context.retreatTick();now+=100;player.hp=75;
-assert.equal(context.retreatTick(),false,'Heavy damage above 20% must not start retreat');
+assert.equal(context.retreatTick(),true,'Heavy damage triggers retreat while HP is still high');
 now+=100;player.hp=20;
-assert.equal(context.retreatTick(),false,'Exactly 20% must not start retreat');
+assert.equal(context.retreatTick(),true,'Continue escaping instead of waiting for critical HP');
 now+=100;player.hp=19;
 assert.equal(context.retreatTick(),true,'Fresh heavy damage below 20% starts retreat');
 const deadline=context.retreatState.until;now+=100;
@@ -28,4 +28,8 @@ now=finalDeadline+1;context.retreatTick();
 assert.equal(context.retreatState.until,0);assert.equal(path.length,0);assert.equal(stopped,1);
 // After reset, remaining low HP does not trigger another escape.
 context.retreatTick();assert.equal(context.retreatState.until,0);
+player.hpMax=195;player.hp=195;now+=4000;context.retreatTick();
+now+=50;player.hp=141;
+assert.equal(context.retreatTick(),true,'54/195 HP hit triggers escape at 72% HP');
+assert.ok(path.length>0,'Escape route replaces stationary interaction immediately');
 console.log('Low HP and bounded retreat regressions passed');

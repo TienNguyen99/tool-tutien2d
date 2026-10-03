@@ -3,6 +3,7 @@ import { persist, ratio, state } from './state.js';
 import { gameRuntimeHook } from './runtime-hook.js';
 import { queueFailure } from './failure-log.js';
 import { initSettings } from './settings.js';
+import { initLogViewer } from './log-viewer.js';
 const memorySynced = new WeakSet();
 async function syncChoiceMemory(source) {
   if (!source || memorySynced.has(source)) return;
@@ -18,6 +19,11 @@ async function syncChoiceMemory(source) {
 const isMiniMode=new URLSearchParams(location.search).get('mini')==='1';
 window.name=isMiniMode?'tienlo-companion-mini':'tienlo-companion';
 if(isMiniMode)document.body.classList.add('mini-mode');
+if(!isMiniMode && document.body.classList.contains('control-mode')) {
+  const rail=document.createElement('div');rail.className='control-rail';
+  document.querySelector('#auto > .grid').append(rail);
+  rail.append(document.querySelector('.safety-settings'),document.querySelector('#sessionCharacter').closest('.card'));
+}
 document.querySelector('#miniOpen').addEventListener('click',()=>{const url=location.origin+location.pathname+'?mini=1';const popup=window.open(url,'tienlo-companion-mini','popup=yes,width=440,height=720,resizable=yes,scrollbars=yes');if(!popup)toast('Trình duyệt đang chặn tiểu cửa sổ');else popup.focus()});
 function toast(message='Đã lưu trên thiết bị'){const el=document.querySelector('#toast');el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),1800)}
 let lastLiveAt=0;
@@ -25,7 +31,7 @@ const LIVE_TIMEOUT_MS=15000;
 let connectionLost=false;
 let lastQuestKey=state.live?[state.live.questStage,...(state.live.objectives||[])].join('|'):'';
 const ruleCooldown={};
-function addAutoEvent(message,warn=false){const log=document.querySelector('#autoLog');if(log.children.length===1&&log.textContent.includes('Nhật ký quyết định'))log.innerHTML='';const row=document.createElement('div');row.className='auto-event'+(warn?' warn':'');row.innerHTML=`<strong>${new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})}</strong> · ${message}`;log.prepend(row);while(log.children.length>8)log.lastElementChild.remove()}
+const addAutoEvent=initLogViewer(document.querySelector('#autoLog'));
 function fireRule(key,message){if(Date.now()-(ruleCooldown[key]||0)<15000)return;ruleCooldown[key]=Date.now();addAutoEvent(message,true);toast(message)}
 function renderQuest(data){
   if(!data)return;

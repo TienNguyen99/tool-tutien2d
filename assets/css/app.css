@@ -59,3 +59,34 @@ main{grid-row:2;padding:20px;min-width:0}.view{display:none;animation:reveal .24
 @media(max-width:640px){.topbar{padding:0 12px}.brand small,.top-stats .chip:last-child{display:none}.brand{min-width:0}.brand h1{font-size:1rem}.top-stats{gap:4px}.chip{padding:7px;font-size:.72rem}main{padding:12px}.view-head{display:block}.view-head p{margin-top:8px}.quest-hero{grid-template-columns:1fr}.activity-list{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.equipment{grid-template-columns:repeat(4,1fr)}.auto-options{grid-template-columns:repeat(2,1fr)}.control-mode main{padding:10px}.control-mode .control-overview{grid-template-columns:1fr}.control-mode .connection-help{text-align:left}.control-mode .auto-live .btn-row{grid-template-columns:1fr 1fr}.control-mode #stopGameAuto{grid-column:1/-1}.control-mode .session-grid{grid-template-columns:repeat(2,1fr)}}
 .session-grid,.control-mode .session-grid{grid-template-columns:repeat(4,minmax(0,1fr))}#sessionMetricNote{display:block;margin-top:10px;color:var(--muted);font-size:.72rem}@media(max-width:640px){.session-grid,.control-mode .session-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .control-mode #auto>.grid>.card.safety-settings{display:block!important}.safety-settings summary{cursor:pointer;color:var(--gold-2);font-weight:700}#safetySettings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}#safetySettings fieldset{min-width:0;border:1px solid #49765d;border-radius:5px;padding:10px}#safetySettings legend{font-size:.82rem;color:#bfe0cc}.setting-row{display:grid;grid-template-columns:minmax(0,1fr) 105px 48px;align-items:center;gap:8px;font-size:.78rem;padding:9px 0}.setting-row input[type=checkbox]{grid-column:3;width:18px;height:18px;accent-color:#75bb94}.setting-row input[type=range]{width:100%;accent-color:#75bb94}.setting-row output{text-align:right;color:#efd08a;font-variant-numeric:tabular-nums}@media(max-width:640px){#safetySettings{grid-template-columns:1fr}.setting-row{grid-template-columns:minmax(0,1fr) 90px 44px}}
+
+/* Wide control dashboard: activity workspace and a compact information rail. */
+.control-mode main{max-width:1800px;padding:18px 24px}
+.control-mode #auto>.grid{grid-template-columns:minmax(0,1.7fr) minmax(340px,1fr);align-items:start;gap:16px}
+.control-mode .control-overview{grid-column:1/-1;grid-template-columns:minmax(200px,.65fr) 2fr;padding:14px 18px}
+.control-mode .control-vitals{grid-template-columns:repeat(4,minmax(0,1fr))}
+.control-mode .auto-live{grid-column:1;grid-row:2;min-width:0;padding:18px}
+.control-mode .control-rail{grid-column:2;grid-row:2;display:grid;gap:16px;min-width:0}
+.control-mode .control-rail>.card{grid-column:auto;grid-row:auto}
+.control-mode .control-rail .safety-settings{grid-row:auto}
+.control-mode .safety-settings{grid-column:2;grid-row:2}
+.control-mode #auto>.grid>.card:last-child{grid-column:2;grid-row:3}
+.control-mode .auto-log{max-height:none;height:clamp(360px,57vh,720px);display:flex;flex-direction:column;gap:8px;scrollbar-gutter:stable;padding-right:6px;overflow:auto;resize:vertical;min-height:220px}
+.auto-event{flex-shrink:0;display:grid;grid-template-columns:72px minmax(0,1fr);gap:12px;font:400 14px/1.65 "Segoe UI",Arial,sans-serif;padding:12px;overflow-wrap:anywhere;border-radius:4px}
+.auto-event time{color:var(--jade);font-size:12px;font-variant-numeric:tabular-nums;padding-top:3px}
+.auto-event.warn{background:#33271a;border-color:#e2ae56;color:#f4dfb8}
+.log-toolbar{margin-top:18px;border-top:1px solid #49614e;padding-top:16px}
+.log-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.log-heading strong{font-size:16px;color:#f0dfb6}.log-heading span{font-size:12px;color:var(--muted)}
+.log-filters{display:grid;grid-template-columns:minmax(0,1fr) 190px;gap:8px}
+.log-filters input,.log-filters select{width:100%;min-width:0;padding:10px 12px;background:#141c16;border:1px solid #48634f;border-radius:4px;color:#efe4cf}
+.log-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.log-actions .btn{font-size:12px;padding:8px 10px}
+.log-empty{color:var(--muted);font-size:14px;padding:20px 12px}
+.control-mode .session-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.control-mode .stat-box{padding:10px}.control-mode .stat-box b{font-size:1.12rem;font-variant-numeric:tabular-nums}
+.control-mode .safety-settings details[open]{max-height:52vh;overflow:auto;padding-right:4px}
+.control-mode #safetySettings{grid-template-columns:1fr;gap:12px}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid #9ee1b9;outline-offset:3px}
+@media(max-width:1100px){.control-mode #auto>.grid{grid-template-columns:minmax(0,1fr)}.control-mode .control-overview,.control-mode .auto-live,.control-mode .safety-settings,.control-mode .control-rail,.control-mode #auto>.grid>.card:last-child{grid-column:1;grid-row:auto}.control-mode .control-overview{grid-template-columns:1fr}.control-mode #safetySettings{grid-template-columns:repeat(2,minmax(0,1fr))}.control-mode .session-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:640px){.control-mode main{padding:12px}.control-mode .topbar{height:auto;min-height:60px;flex-wrap:wrap;padding:10px 12px;gap:10px}.control-mode .top-stats{flex-wrap:wrap}.control-mode .control-vitals{grid-template-columns:repeat(2,minmax(0,1fr))}.control-mode #safetySettings{grid-template-columns:1fr}.control-mode .session-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.log-filters{grid-template-columns:1fr}.auto-event{grid-template-columns:1fr;gap:2px}.control-mode .auto-log{height:45vh;min-height:280px}}
+.mini-mode .log-heading strong{font-size:14px}.mini-mode .log-filters{grid-template-columns:1fr}.mini-mode .auto-event{font-size:12px;grid-template-columns:1fr;gap:2px}.mini-mode .auto-log{max-height:320px}

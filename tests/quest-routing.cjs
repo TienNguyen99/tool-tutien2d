@@ -22,7 +22,7 @@ const context = vm.createContext({
   fold: value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd'),
 });
 vm.runInContext(section('analyzeQuest', 'chooseTarget') + section('mapDefinitions', 'navigateToMap')
-  + section('inferTargetMap', 'inferInteractIds'), context);
+  + section('inferTargetMap', 'inferInteractIds') + section('dailyDuocCongPlan','analyzeQuest'), context);
 
 context.window.PNTT = {
   SceneWorld: { map: { data: { id: 'thanh_truc_lam' } } },
@@ -188,7 +188,7 @@ context.window.PNTT = { SceneWorld: { map: { data: { id: 'test' } },
 vm.runInContext(section('retreatTick', 'safetyTick'), context);
 assert.equal(context.retreatTick(), false);
 context.window.PNTT.SceneWorld.player.hp = 75;
-assert.equal(context.retreatTick(), false, 'Heavy damage above 20% must not trigger retreat');
+assert.equal(context.retreatTick(), true, 'Heavy damage must trigger retreat even above 20% HP');
 context.window.PNTT.SceneWorld.player.hp = 19;
 assert.equal(context.retreatTick(), true, 'Heavy damage below 20% must trigger retreat');
 assert.ok(context.avoidedEnemies.get('test:strong') > Date.now());

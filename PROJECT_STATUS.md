@@ -2,7 +2,17 @@
 
 ## Phiên bản hiện tại
 
-- Extension: `1.3.49`
+- Extension: `1.3.54`
+
+- 1.3.54: Utility khi chờ cây: trả việc 850, thu hoạch 800, tưới 780, săn Linh Thúy 650 trừ nguy hiểm, việc đang nhận 550, nhận Dược Công 420 trừ nguy hiểm, chờ 50. Đọc Farm.state/ready/remain, kiểm tra mỗi nhịp quest; chờ hợp lệ không kích watchdog. Setting utilityWhileGrowing mặc định bật. Chưa kiểm chứng chuỗi trong game thật.
+
+- 1.3.53: Settings làm hết lượt Dược Công thường theo seedTaskList/runsLeft; ưu tiên trước quest chính khi bật, nhận/làm/trả rồi nhận tiếp, hết lượt dừng. Tùy chọn nhận thêm Đại Hội, nhưng trận Đại Hội vẫn cần người dùng tham gia/thắng (manual). Chưa kiểm chứng 15 lượt thật.
+
+- 1.3.52: Settings autoFly mặc định tắt; kiểm tra mỗi 1s khi Auto chạy, dùng pressFlyToggle, kiểm tra đã bay/canFly/vùng cấm/menu/thiền/hồi phục; retry tối thiểu 5s. Tắt setting ngừng tự cất cánh, không tự hạ cánh. Chưa test game thật.
+
+- 1.3.51: Bật tự hồi sinh mặc định và migration dashboard một lần; nhận nút Hồi sinh/Hồi sinh tại chỗ. Ưu tiên tại chỗ, fallback Về làng khi không khả dụng sau 5s hoặc hết giới hạn 3 lần/30s; về làng click một lần, chờ xác nhận tối đa 15s. Chưa test game thật.
+
+- 1.3.50: Kiểm tra sát thương/rút lui mỗi 50ms; sát thương lớn kích hoạt ở mọi mức HP, hoặc HP thấp còn bị đánh. Khởi tạo mẫu HP/giáp trước Auto, xóa input/path cũ khi bắt đầu rút. Giữ thời gian chạy tối đa và điều kiện thoát tiếp xúc. Chưa đo độ trễ trong Chrome thật.
 
 - 1.3.49: Stage 19 có handler riêng mở Tán Tu Chiến Bảng rồi bấm .cb-fight khả dụng; bỏ phân trang và không coi mở bảng là quest thất bại. Cooldown khiêu chiến 8s. Fix từ log 2026-10-03; chưa xác minh trận thật hoàn thành.
 
@@ -59,6 +69,8 @@
   `assets/js/app.js`
 
 ## Kiến trúc companion
+
+- Dashboard rộng tối đa 1800px, log ở cột chính, Settings và thống kê ở cột phải; responsive một cột dưới 1100px. Log giữ 500 sự kiện trong bộ nhớ phiên, tìm kiếm/lọc cảnh báo/Utility/combat, tạm dừng hiển thị, sao chép và xóa hiển thị. Tạm dừng không dừng Auto; xóa không xóa log server. Đã kiểm tra UI ở viewport nhỏ và desktop bằng browser.
 
 - `index.html`: chỉ giữ cấu trúc HTML, không còn CSS/JavaScript nội tuyến.
 - `assets/css/app.css`: giao diện.

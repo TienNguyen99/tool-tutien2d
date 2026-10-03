@@ -10,6 +10,10 @@ function readStoredState() {
 
 export const state = Object.assign({}, defaults, readStoredState());
 state.autoRules = Object.assign({}, defaults.autoRules, state.autoRules || {});
+if (!state.revivePriorityV1) {
+  state.autoRules.reviveInPlace = true;
+  state.revivePriorityV1 = true;
+}
 
 export function persist() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));

@@ -2,7 +2,7 @@
   'use strict';
 
   if (window.__tienloExtensionHook) return;
-  const HOOK_VERSION = '1.3.49';
+  const HOOK_VERSION = '1.3.54';
   window.__tienloExtensionHook = HOOK_VERSION;
 
   const HELPER_URL = 'http://127.0.0.1:8765/index.html';
@@ -16,7 +16,8 @@
     damageArmorThreshold: 35, retreatSeconds: 8, hitRunEnabled: true,
     kiteMilliseconds: 250, kiteDistance: 36, recoverHealth: true,
     recoverHpThreshold: 30, recoverHpResume: 85, recoverSafeRadius: 200,
-    spResumeThreshold: 85, aiPlanner: true, reviveInPlace: false, visionDialogs: false
+    spResumeThreshold: 85, aiPlanner: true, reviveInPlace: true, visionDialogs: false, autoFly: false,
+    dailyDuocCong: false, dailyDuocCongTournament: false, utilityWhileGrowing: true
   };
 
   let helperWindow = null;
@@ -26,6 +27,8 @@
   let skillIndex = 0;
   let pendingChoice = null;
   let chienBangAttemptAt = 0;
+  let lastFlyAttemptAt = 0;
+  let cropWaitStage = null;
   const learnedChoices = new Map();
   const choiceValues = new Map();
   const worldMaps = new Map();
@@ -577,6 +580,67 @@
       : mapName;
   }
 
+  function dailyDuocCongPlan(Q, guide) {
+    const task = safe(() => Q.seedTaskInfo?.());
+    if (task) {
+      if (task.kind === 'tournament') return {action:'manual',objective:task.name,
+        targetLabel:'Dược Công Đại Hội · cần thắng trận Đại Hội theo giờ mở sổ'};
+      if (safe(() => Q.seedQuestComplete?.(),false)) return {action:'interact',mapId:'duoc_vien',
+        ids:['dai_phu'],objective:'Giao việc Dược Công',targetLabel:'Đại Phu · giao việc',
+        autoChoice:task.kind === 'fishing'?'Giao Ba Cá':'Giao Nguyên Liệu'};
+      if (task.kind === 'fishing') return {action:'interact',mapId:'duoc_vien',
+        ids:['ho_bich_thuy_cong','suoi_duoc_coc'],objective:task.name,
+        targetLabel:'Câu cá Dược Công',autoChoice:'Tự động câu'};
+      if (task.kind === 'escort') return {action:'interact',mapId:'tan_vien',ids:['su_phu'],
+        objective:task.name,targetLabel:'Thầy Ông Nội · giao người'};
+      return {action:'interact',mapId:guide?.mapId || ({linh_chi:'tan_vien',truc_gia:'thanh_truc_lam',duoc_moc:'duoc_vien'})[task.id],
+        ids:guide?.ids || task.propIds || [],objective:task.name,targetLabel:task.itemName || task.shortName};
+    }
+    if (!Q.seedTaskList || !Q.canOpenSeedMenu?.()) return {action:'manual',
+      objective:'Dược Công ngày',targetLabel:'Dược Công chưa mở hoặc runtime chưa hỗ trợ'};
+    const remaining=Q.seedTaskList().filter(row=>row.runsLeft>0 &&
+      (config.dailyDuocCongTournament || row.def.kind !== 'tournament'));
+    if (!remaining.length) return {action:'daily_done',objective:'Dược Công ngày',targetLabel:'Đã hết lượt Dược Công đã chọn hôm nay'};
+    return {action:'interact',mapId:'duoc_vien',ids:['dai_phu'],objective:'Nhận việc Dược Công ngày',
+      targetLabel:`Đại Phu · còn ${remaining.reduce((n,row)=>n+row.runsLeft,0)} lượt`,dailyTask:remaining[0].def};
+  }
+
+  function cropUtilityPlan(P, Q, guide) {
+    if (!config.utilityWhileGrowing || !window.__tienloUtility || !P.Farm?.state) return null;
+    if (cropWaitStage !== Q.stage) cropWaitStage = null;
+    const step=safe(() => Q.buocCuaQuan?.());
+    if (step?.id === 'cham_soc' || step?.id === 'thu_hoach') cropWaitStage=Q.stage;
+    else if (step && !Q.seedTaskInfo?.()) cropWaitStage=null;
+    if (cropWaitStage === null) return null;
+    const recipe=Q.brewRecipe?.(P.BREAKTHROUGH?.[P.Progress?.realmId]?.item)?.recipe || [];
+    const cropItems=recipe.filter(row=>row.id!=='linh_thuy').map(row=>row.id);
+    const plots=Object.keys(P.Farm.state).filter(id=>!cropItems.length ||
+      cropItems.includes(P.Farm.seedDef?.(P.Farm.state[id].seed)?.crop));
+    if (!plots.length) {cropWaitStage=null;return null;}
+    const ready=plots.filter(id=>P.Farm.ready?.(id));
+    const dry=plots.filter(id=>!P.Farm.ready?.(id) && !P.Farm.state[id].wet);
+    const remaining=Math.min(...plots.filter(id=>!ready.includes(id)).map(id=>
+      Number(P.Farm.remain?.(id) ?? Math.max(0,(P.Farm.state[id].at+P.Farm.state[id].dur-Date.now())/1000))));
+    const task=Q.seedTaskInfo?.();
+    const linhThuyNeed=recipe.find(row=>row.id==='linh_thuy')?.qty || 0;
+    const player=P.SceneWorld?.player;
+    const threats=(P.SceneWorld?.enemies || []).filter(e=>e&&!e.dead&&e.hp!==0&&
+      Math.hypot(e.x-player?.x,e.y-player?.y)<180).length;
+    const result=window.__tienloUtility.choosePlantAction({ready:ready.length>0,dry:dry.length>0,remaining,
+      activeTask:task?.kind,taskComplete:!!Q.seedQuestComplete?.(),
+      needLinhThuy:linhThuyNeed>Number(P.Inventory?.count?.('linh_thuy') || 0),
+      hp:player?.hpMax>0?player.hp/player.hpMax*100:0,threats,
+      dailyAvailable:!!Q.canOpenSeedMenu?.() && !!Q.seedTaskList?.().some(row=>row.runsLeft>0 && row.def.kind!=='tournament')});
+    const choice=result.selected;
+    const common={utility:result,objective:'Chăm cây và tận dụng thời gian chờ',stepId:`utility_${choice.id}`};
+    if (choice.id==='harvest' || choice.id==='water') return {...common,action:'interact',mapId:'vuon_ca_nhan',
+      ids:choice.id==='harvest'?ready:dry,autoChoice:choice.id==='harvest'?'Thu hoạch':'Tưới',targetLabel:choice.reason};
+    if (choice.id==='hunt') return {...common,action:'attack',mapId:'vuon_ca_nhan',
+      enemyNames:['Dược Linh Thú'],enemyTypes:inferEnemyTypes('Dược Linh Thú','vuon_ca_nhan'),itemIds:['linh_thuy'],targetLabel:choice.reason};
+    if (choice.id==='active_task' || choice.id==='daily_task') return {...dailyDuocCongPlan(Q,guide),...common};
+    return {...common,action:'wait',targetLabel:`Chờ cây chín · khoảng ${Math.ceil(remaining)}s`};
+  }
+
   function analyzeQuest() {
     const P = window.PNTT || {};
     const Q = P.Quest || {};
@@ -599,7 +663,13 @@
 
     const xpObjective = rows.find(row => /tich.*dao hanh/i.test(fold(row.text)) &&
       !row.done && row.cur != null && row.max > 0 && row.cur < row.max);
+    if (typeof config !== 'undefined') {
+      const utilityPlan=cropUtilityPlan(P,Q,guide);
+      if (utilityPlan) return make(utilityPlan);
+      if (config.dailyDuocCong) return make(dailyDuocCongPlan(Q,guide));
+    }
     const task = safe(() => Q.seedTaskInfo?.());
+    if (task && safe(()=>Q.seedQuestComplete?.(),false)) return make(dailyDuocCongPlan(Q,guide));
     const breakthroughStep = !task ? safe(() => Q.buocCuaQuan?.()) : null;
     const killTarget = objective.match(/(?:hạ|diệt|đánh bại)\s+(.+?)(?:\s+ở\s+|\s*\(|,|$)/i)?.[1]?.trim();
     if (killTarget && !task && !breakthroughStep?.place?.ids?.length) {
@@ -951,6 +1021,11 @@
       const label = fold(text);
       let score = 0;
       let reason = '';
+      if (plan?.dailyTask) {
+        const taskName=fold(plan.dailyTask.shortName || plan.dailyTask.name);
+        if (/^(nhan viec nay|nhan viec duoc cong|xem so viec duoc cong)/.test(label) ||
+            taskName && label.startsWith(taskName)) return {index,score:240,reason:'Nhận việc Dược Công còn lượt hôm nay'};
+      }
       if (plan?.stepId === 'luyen_dan' && /pha canh|pha quan|^thieu$/.test(label))
         return { index, score: -1000, reason: 'Cần luyện đan trước khi phá quan' };
       if (/^gieo hat /.test(label)) {
@@ -1830,6 +1905,19 @@
     }
     if (questDefenseTick()) return;
     const plan = analyzeQuest();
+    if (plan.action === 'daily_done') return stop('off',plan.targetLabel);
+    if (plan.utility) {
+      const selected=plan.utility.selected;
+      reportOnce(`utility:${selected.id}`,'quest',`UTILITY · ${selected.reason} · điểm ${selected.score} · `+
+        plan.utility.choices.map(row=>`${row.id}:${row.score}`).join(' / '),5000);
+      const dialog=visibleElement('#dialog');
+      if(dialog && (plan.action==='wait' || plan.action==='attack' || plan.mapId!==scene.map?.data?.id)) {
+        dialog.querySelector('#dialog-close')?.click();
+        dialogDecision.ai=null;dialogDecision.signature='';
+        return;
+      }
+      if(plan.action==='wait') {holdQuestPosition();resetQuestWatchdog(plan);return;}
+    }
     if (questWatchdogTick(plan)) return;
     if (handleQuestOverlay()) return;
     const hudDialogOpen = typeof P.HUD?.dialogOpen === 'function'
@@ -2030,7 +2118,12 @@
       (player.bpMax > 0 && bpDamage >= player.bpMax * (config.damageArmorThreshold ?? 35) / 100);
     // Low HP alone is not evidence of a strong attack. Only fresh damage
     // may trigger/extend an escape; old samples must not refresh the timer.
-    if (config.retreatEnabled !== false && criticalHp && threats.length && heavyDamage && (hpLost > 0 || bpLost > 0)) {
+    if (config.retreatEnabled !== false && threats.length && (heavyDamage || criticalHp) && (hpLost > 0 || bpLost > 0)) {
+      if (!retreatState.until) {
+        retreatState.routeAt = 0;
+        safe(() => player.setPath?.([]));
+        safe(() => P.Input?.reset?.());
+      }
       retreatState.until = now + (config.retreatSeconds ?? 8) * 1000;
       for (const enemy of threats) avoidedEnemies.set(`${mapId}:${enemy.id}`, now + 60000);
     }
@@ -2038,7 +2131,7 @@
     const lastHitAt = retreatState.hits.at(-1)?.at || 0;
     const safeFromContact = !threats.some(enemy =>
       Math.hypot(enemy.x - player.x, enemy.y - player.y) < 120);
-    if (config.retreatEnabled === false || !criticalHp || now >= retreatState.until || (safeFromContact && now - lastHitAt >= 1000)) {
+    if (config.retreatEnabled === false || now >= retreatState.until || (safeFromContact && now - lastHitAt >= 1000)) {
       retreatState.until = 0;
       retreatState.hits = [];
       lastQuestTarget = '';
@@ -2247,6 +2340,19 @@
     return true;
   }
 
+  function flightTick() {
+    if (mode === 'off' || !config.autoFly || meditating || recoveryState.phase !== 'idle') return;
+    const P = window.PNTT || {}, scene = P.SceneWorld, player = scene?.player;
+    if (!player || player.downed || !(player.hp > 0) || player.flying || player.state === 'sit' ||
+        scene.menuOpen || P.HUD?.bagOpen || P.SkillBook?.open || visibleDialog()) return;
+    if (!P.Input?.pressFlyToggle || !P.Player?.canFly?.(player) ||
+        P.Player.inNoFlyZone?.(player,scene.map) || P.HacThi?.camBay?.(P,scene.map?.data?.id)) return;
+    if (Date.now()-lastFlyAttemptAt < 5000) return;
+    lastFlyAttemptAt = Date.now();
+    P.Input.pressFlyToggle();
+    reportOnce('auto-fly',mode,'PHI HÀNH · đã yêu cầu cất cánh',5000);
+  }
+
   function reviveTick(data) {
     if (mode === 'off') return;
     const now=Date.now();
@@ -2256,12 +2362,20 @@
       safe(()=>window.PNTT?.SceneWorld?.player?.setPath?.([]));
     }
     if (stats.seenOnline && !data.online) return stop('safe','HỒI SINH · mất kết nối, đã dừng');
-    if (now-reviveState.since>30000 || reviveState.attempts>=3 && now-reviveState.lastClick>=5000)
-      return stop('safe','HỒI SINH · chưa thành công sau giới hạn thử, đã dừng');
     const root=visibleElement('#downed');
-    const button=root && [...root.querySelectorAll('button')].find(b=> !b.disabled && b.getClientRects().length &&
-      /hoi sinh tai cho/.test(fold(`${b.textContent} ${b.getAttribute('aria-label')||''}`)));
-    if (!button) return reportOnce('revive-wait',mode,'HỒI SINH · chờ nút hồi sinh tại chỗ khả dụng',2500);
+    const buttons=root ? [...root.querySelectorAll('button')].filter(b=>!b.disabled && b.getClientRects().length) : [];
+    if (reviveState.villageAt) {
+      if(now-reviveState.villageAt>15000) stop('safe','VỀ LÀNG · chưa xác nhận sống lại, đã dừng');
+      return;
+    }
+    const button=buttons.find(b=>/^hoi sinh(?: tai cho)?$/.test(fold(b.textContent.trim())));
+    const exhausted=now-reviveState.since>30000 || reviveState.attempts>=3 && now-reviveState.lastClick>=5000;
+    if (exhausted || !button && now-reviveState.since>=5000) {
+      const village=buttons.find(b=>/^ve lang$/.test(fold(b.textContent.trim())));
+      if(village){reviveState.villageAt=now;village.click();report(mode,'VỀ LÀNG · hồi sinh tại chỗ không khả dụng hoặc không thành công');return;}
+      if(exhausted)return stop('safe','HỒI SINH · không có cách hồi sinh khả dụng, đã dừng');
+    }
+    if (!button) return reportOnce('revive-wait',mode,'HỒI SINH · ưu tiên hồi sinh tại chỗ, chờ nút khả dụng',2500);
     if (reviveState.lastClick && now-reviveState.lastClick<5000) return;
     reviveState.lastClick=now;reviveState.attempts++;
     button.click();
@@ -2378,12 +2492,18 @@
     resetZoneQuestState();
     resetQuestWatchdog();
     mode = autoMode;
+    retreatState = {mapId:scene.map?.data?.id, hp:scene.player?.hp, bp:scene.player?.bp,
+      hits:[],until:0,routeAt:0};
     kiteUntil = kiteRouteAt = kiteAttackAt = 0;
     setNativeAuto(autoMode === 'farm');
     timers = autoMode === 'quest'
       ? [setInterval(questTick, 1000), setInterval(safetyTick, 1000)]
       : [setInterval(() => combatTick('farm'), 1500), setInterval(move, 9000), setInterval(safetyTick, 1000)];
     timers.push(setInterval(kiteTick, 150));
+    timers.push(setInterval(flightTick, 1000));
+    timers.push(setInterval(() => {
+      if (mode !== 'off') retreatTick();
+    }, 50));
     // Poll only open dialogs more often; movement and combat keep their own cadence.
     if (autoMode === 'quest') timers.push(setInterval(() => {
       if (mode !== 'quest' || meditating || recoveryState.phase !== 'idle' ||

@@ -1,5 +1,5 @@
 export const STORAGE_KEY = 'tien-lo-companion-v1';
-export const EXPECTED_HOOK_VERSION = '1.3.49';
+export const EXPECTED_HOOK_VERSION = '1.3.54';
 
 export const defaults = {
   tasks: [false, false, false],
@@ -24,7 +24,8 @@ export const defaults = {
     damageArmorThreshold: 35, retreatSeconds: 8, hitRunEnabled: true,
     kiteMilliseconds: 250, kiteDistance: 36, recoverHealth: true,
     recoverHpThreshold: 30, recoverHpResume: 85, recoverSafeRadius: 200,
-    spResumeThreshold: 85, aiPlanner: true, reviveInPlace: false, visionDialogs: false
+    spResumeThreshold: 85, aiPlanner: true, reviveInPlace: true, visionDialogs: false, autoFly: false,
+    dailyDuocCong: false, dailyDuocCongTournament: false, utilityWhileGrowing: true
   }
 };
 

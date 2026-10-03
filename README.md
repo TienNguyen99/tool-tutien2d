@@ -41,7 +41,8 @@ game đang kết nối; cũng được gửi khi bắt đầu Auto Quest/Farm.
   Auto tìm đường qua collision grid rồi dùng Q; khi quái lại gần sẽ đứng lên tìm chỗ khác.
   Nếu HP không tăng trong 20s khi ngồi, tool dừng kiểm tra thay vì thiền vô hạn.
 - Rút lui: bật/tắt chạy xa, chỉnh ngưỡng HP, sát thương HP/giáp trong 3s và thời gian chạy tối đa.
-  Mặc định chỉ rút lui do sát thương mạnh khi HP **dưới 20%**.
+  Sát thương mạnh kích hoạt rút lui ở mọi mức HP; HP dưới ngưỡng cũng rút khi còn bị đánh.
+  Kiểm tra nguy hiểm mỗi 50ms khi Auto chạy; độ trễ thực tế phụ thuộc trình duyệt/game.
 - Hit-and-run: bật/tắt né sau khi phát đòn, chỉnh thời gian né và khoảng lùi.
 - Thiền linh lực: chỉnh % bắt đầu và % tiếp tục. Ngưỡng tiếp tục luôn cao hơn ngưỡng bắt đầu.
 
