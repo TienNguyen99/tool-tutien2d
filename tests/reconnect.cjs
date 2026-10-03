@@ -16,10 +16,12 @@ assert.equal(pings[0][0].type, 'TIENLO_LINK_PING');
 assert.equal(pings[0][1], 'https://tutien2d.online');
 
 let stateSends = 0;
+let buttonLabel='';
 const linked = vm.createContext({
   HELPER_ORIGIN: 'http://127.0.0.1:8765', helperWindow: null,
   sendState: () => { stateSends++; },
   window: {}, setInterval: () => 123,
+  mode:'off',setButton:label=>{buttonLabel=label;},
 });
 vm.runInContext(between('  function onMessage(', '  function connect('), linked);
 const dashboard = {};
@@ -31,6 +33,10 @@ assert.equal(stateSends, 1, 'Reconnect sends fresh state without starting automa
 assert.equal(linked.window.__tienloExtensionLiveTimer,123,'Handshake restores missing live timer');
 linked.onMessage({origin:linked.HELPER_ORIGIN,data:{type:'TIENLO_LINK_PING'},source:dashboard});
 assert.equal(stateSends,2,'Every ping returns fresh data');
+assert.equal(buttonLabel,'✓ Đã kết nối','Reconnect updates idle button label');
+linked.mode='quest';
+linked.onMessage({origin:linked.HELPER_ORIGIN,data:{type:'TIENLO_LINK_PING'},source:dashboard});
+assert.equal(buttonLabel,'✦ Auto Quest','Reconnect preserves active mode label');
 
 const liveMessages=[];
 const live=vm.createContext({safe:fn=>{try{return fn()}catch{}},

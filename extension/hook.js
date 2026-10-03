@@ -2,7 +2,9 @@
   'use strict';
 
   if (window.__tienloExtensionHook) return;
-  const HOOK_VERSION = '1.3.54';
+  const HOOK_VERSION = '1.3.89';
+  let pendingForgedWeapon = '';
+  let forgeAttempt = { count: 0, at: 0, before: 0, equipCount: 0 };
   window.__tienloExtensionHook = HOOK_VERSION;
 
   const HELPER_URL = 'http://127.0.0.1:8765/index.html';
@@ -29,6 +31,8 @@
   let chienBangAttemptAt = 0;
   let lastFlyAttemptAt = 0;
   let cropWaitStage = null;
+  let questCadenceAt = 0;
+  let questGameTime = null;
   const learnedChoices = new Map();
   const choiceValues = new Map();
   const worldMaps = new Map();
@@ -196,6 +200,7 @@
       questStageIndex: Number.isFinite(+quest.stage) ? +quest.stage : null,
       objectives: hud.objectives,
       questPlan,
+      dailyActivities:safe(()=>window.__tienloDailyActivities?.(P)),
       xpLabel: hud.xpLabel || String(exp),
       xpPercent: expMax ? `${Math.min(100, Math.round(exp / expMax * 100))}%` : hud.xpPercent,
       playerState: player?.state || '', downed: !!player?.downed,
@@ -297,6 +302,7 @@
     next.skillSlots = (Array.isArray(next.skillSlots) ? next.skillSlots : String(next.skillSlots || '').split(','))
       .map(Number).filter(slot => slot >= 1 && slot <= 8);
     config = next;
+    window.__tienloBackgroundRun?.set(!!next.backgroundRun);
     const P = window.PNTT || {}, player = P.SceneWorld?.player;
     if (!next.hitRunEnabled && kiteUntil) {
       kiteUntil = 0;
@@ -344,7 +350,8 @@
     meditating = false;
     recoveryState.phase = 'idle';
     report(nextMode, message);
-    setButton('✦ Trợ Thủ', true);
+    const linked = !!helperWindow && !helperWindow.closed;
+    setButton(linked ? '✓ Đã kết nối' : '✦ Trợ Thủ', linked);
   }
 
   function fold(value) {
@@ -586,7 +593,7 @@
       if (task.kind === 'tournament') return {action:'manual',objective:task.name,
         targetLabel:'Dược Công Đại Hội · cần thắng trận Đại Hội theo giờ mở sổ'};
       if (safe(() => Q.seedQuestComplete?.(),false)) return {action:'interact',mapId:'duoc_vien',
-        ids:['dai_phu'],objective:'Giao việc Dược Công',targetLabel:'Đại Phu · giao việc',
+        ids:['dai_phu'],stepId:'daily_turn_in',objective:'Giao việc Dược Công',targetLabel:'Đại Phu · giao việc',
         autoChoice:task.kind === 'fishing'?'Giao Ba Cá':'Giao Nguyên Liệu'};
       if (task.kind === 'fishing') return {action:'interact',mapId:'duoc_vien',
         ids:['ho_bich_thuy_cong','suoi_duoc_coc'],objective:task.name,
@@ -633,6 +640,9 @@
       dailyAvailable:!!Q.canOpenSeedMenu?.() && !!Q.seedTaskList?.().some(row=>row.runsLeft>0 && row.def.kind!=='tournament')});
     const choice=result.selected;
     const common={utility:result,objective:'Chăm cây và tận dụng thời gian chờ',stepId:`utility_${choice.id}`};
+    if (choice.id==='water' && P.Farm.hasWaterAccess?.() === false) return {...common,
+      action:'interact',mapId:'vuon_ca_nhan',ids:['ho_bich_thuy'],
+      autoChoice:'Múc nước',targetLabel:'Mở nguồn nước trước khi tưới cây'};
     if (choice.id==='harvest' || choice.id==='water') return {...common,action:'interact',mapId:'vuon_ca_nhan',
       ids:choice.id==='harvest'?ready:dry,autoChoice:choice.id==='harvest'?'Thu hoạch':'Tưới',targetLabel:choice.reason};
     if (choice.id==='hunt') return {...common,action:'attack',mapId:'vuon_ca_nhan',
@@ -642,17 +652,46 @@
   }
 
   function analyzeQuest() {
+  function partyBossState(P, objective) {
+    if(P.Quest?.flags?.[P.Quest?.POSTGAME_HUYET_FLAG||'huyet_sac_boss'])return null;
+    // A future boss objective must not preempt daily work or realm prerequisites.
+    const task=safe(()=>P.Quest?.seedTaskInfo?.()),step=safe(()=>P.Quest?.buocCuaQuan?.());
+    const instanceMaps=['rung_mang_xa','mach_dat_dong','dam_lay_boss'];
+    if(!/u minh cu mang|huyet xich cam dia/.test(fold(objective)) &&
+      !instanceMaps.includes(step?.place?.mapId||safe(()=>P.Quest?.guidePlace?.())?.mapId))return null;
+    if(task && task.kind!=='tournament')return null;
+    if(step && !instanceMaps.includes(step.place?.mapId))return null;
+    if(typeof config!=='undefined' && config.dailyDuocCong && safe(()=>P.Quest?.seedTaskList?.(),[])?.some(row=>row.runsLeft>0&&row.def.kind!=='tournament'))return null;
+    if(Number(P.Quest?.stage)===Number(P.Quest?.FORGE_STAGE||20) && !P.Quest?.flags?.ren_vu_khi_chinh)return null;
+    const map=P.SceneWorld?.map?.data;
+    const inside=!!map?.huyetSac || ['rung_mang_xa','mach_dat_dong','dam_lay_boss'].includes(String(map?.id||'')) || /huyet_sac|huyet_xich/.test(String(map?.id||''));
+    // Unknown membership is not evidence of a full party. Read only runtime state.
+    const party=P.Gateway?.party || P.Party?.state || P.Party || P.Team?.state || P.Team;
+    const members=party?.members;
+    const count=Array.isArray(members)?members.length:
+      Number.isInteger(party?.memberCount)?party.memberCount:P.Gateway?.connected&&P.Gateway?.ready&&P.Gateway.party===null?0:null;
+    const scene=P.SceneWorld,npc=scene?.map?.prop?.('nu_tu_mieu_hoang') ||
+      scene?.map?.props?.find(row=>row.id==='nu_tu_mieu_hoang');
+    const nearRegistrar=map?.id==='mieu_hoang' && !!npc && !!scene.player &&
+      Math.hypot(scene.player.x-npc.x,scene.player.y-(npc.y-(P.CONFIG?.TILE||32)/2))<=96;
+    return {inside,count,nearRegistrar,required:6,ready:inside || count>=6};
+  }
+
+
     const P = window.PNTT || {};
     const Q = P.Quest || {};
     const scene = P.SceneWorld || {};
     const guide = safe(() => Q.guidePlace?.());
-    const rows = objectiveRows();
+    const tournamentPending=safe(()=>Q.seedTaskInfo?.())?.kind==='tournament';
+    const nativeBossStage=Number(Q.stage)===Number(Q.POSTGAME_STAGE||21) &&
+      (!safe(()=>Q.seedTaskInfo?.()) || tournamentPending);
+    const rows = (tournamentPending || nativeBossStage) && Q.objectives ? Q.objectives() : objectiveRows();
     const active = rows.find(row => !row.done && !(row.max != null && row.cur >= row.max) && !row.guide && !row.sub)
       || rows.find(row => !row.done && !(row.max != null && row.cur >= row.max));
     const objective = active?.text || readHud().objectives[0] || Q.title || 'Chưa xác định nhiệm vụ';
     const currentMap = String(scene.map?.data?.id || '');
     const make = value => {
-      const plan = { objective, action: 'manual', targetLabel: 'Cần thao tác thủ công',
+      const plan = { gardenWorkflow:!!(guide?.ids?.some(id=>/^plot_|^ho_bich_thuy$/.test(id))), gardenStage8:Number(Q.stage)===8, objective, action: 'manual', targetLabel: 'Cần thao tác thủ công',
         mapId: guide?.mapId || currentMap, ids: guide?.ids || [], ...value };
       plan.location = scanPlanLocation(plan);
       plan.priority = policy.priorities[plan.stepId ? 'quest_next_step' : plan.farmXp
@@ -661,16 +700,57 @@
       return plan;
     };
 
+    const partyBoss=partyBossState(P,objective);
+    if(partyBoss && !partyBoss.inside && !partyBoss.nearRegistrar) return make({action:'interact',stepId:'party_boss_approach',
+      partyBoss,mapId:'mieu_hoang',ids:['nu_tu_mieu_hoang'],targetLabel:'Tới Nữ Tu Trông Miếu trước khi mời tổ đội'});
+    if(partyBoss && !partyBoss.ready) return make({action:'wait',stepId:'party_boss_wait',
+      partyBoss,actionLabel:'CHỜ TỔ ĐỘI',targetLabel:partyBoss.count==null
+        ?'Chưa đọc được số thành viên · cần tổ đội 6 người'
+        :`Tổ đội ${partyBoss.count}/6 · thiếu ${Math.max(0,6-partyBoss.count)} người`});
+    if(partyBoss?.inside) return make({action:'attack',requiredBoss:true,
+      targetLabel:'U Minh Cự Mãng',enemyNames:['U Minh Cự Mãng'],
+      enemyTypes:['u_minh_cu_mang'],mapId:currentMap});
+    if(partyBoss?.ready) return make({action:'interact',stepId:'party_boss_register',
+      targetLabel:'Nữ Tu Trông Miếu · đăng ký Huyết Xích Cấm Địa',
+      mapId:'mieu_hoang',ids:['nu_tu_mieu_hoang'],
+      autoChoice:'Đăng ký Huyết Xích Cấm Địa'});
+
     const xpObjective = rows.find(row => /tich.*dao hanh/i.test(fold(row.text)) &&
       !row.done && row.cur != null && row.max > 0 && row.cur < row.max);
     if (typeof config !== 'undefined') {
       const utilityPlan=cropUtilityPlan(P,Q,guide);
       if (utilityPlan) return make(utilityPlan);
-      if (config.dailyDuocCong) return make(dailyDuocCongPlan(Q,guide));
+      if (config.dailyDuocCong) {
+        const daily=dailyDuocCongPlan(Q,guide);
+        if(daily.action==='daily_done' || tournamentPending) {
+          config.dailyDuocCong=false;
+          reportOnce('daily-resume-main','quest','XONG VIỆC NGÀY · quay lại mạch chính; Đại Hội chờ làm riêng',60000);
+        } else return make(daily);
+      }
     }
-    const task = safe(() => Q.seedTaskInfo?.());
+    const task = tournamentPending ? null : safe(() => Q.seedTaskInfo?.());
     if (task && safe(()=>Q.seedQuestComplete?.(),false)) return make(dailyDuocCongPlan(Q,guide));
     const breakthroughStep = !task ? safe(() => Q.buocCuaQuan?.()) : null;
+    const equipItem=/trang bi phi diep/.test(fold(objective))?'phi_diep':/trang bi truc kiem/.test(fold(objective))?'truc_kiem':null;
+    if(equipItem && P.Inventory?.count?.(equipItem)>0 && !P.Inventory?.isEquipped?.(equipItem))
+      return make({action:'equip',stepId:'quest_equip',equipItemId:equipItem,itemIds:[equipItem],targetLabel:`Trang bị ${P.ITEMS?.[equipItem]?.name||equipItem}`});
+    if (+Q.stage === +(Q.FORGE_STAGE || 20) && !breakthroughStep &&
+        (Q.flags?.hang_dong_da_lay_ruong || Q.flags?.[Q.QUA_HANG_FLAG || 'qua_hang_dong']) && !Q.flags?.ren_vu_khi_chinh) {
+      const oreId=P.Forge?.ORE || 'huyen_thiet_khoang';
+      const owned=['thiet_kiem','thiet_dao','thiet_thuong'].find(id=>P.Inventory?.count?.(id)>0);
+      if(owned) return make({action:'equip',stepId:'forge_equip',equipItemId:owned,itemIds:[owned],targetLabel:'Trang bị vũ khí đã có · không rèn thêm'});
+      const recipe=P.Forge?.RECIPES?.find(row=>row.id==='thiet_kiem');
+      const have=Number(P.Inventory?.count?.(oreId)) || 0,need=Number(recipe?.ore||Q.FORGE_ORE_NEED) || 2;
+      if(have<need) return make({action:'attack',stepId:'forge_ore',mapId:'hang_dong_co',
+        enemyTypes:['thach_yeu','thach_ma','thach_giap_yeu'],itemIds:[oreId],
+        targetLabel:`Huyền Thiết Khoáng ${have}/${need} · săn Thạch Yêu trong hang`});
+      if(P.Progress?.stones!=null && Number(P.Progress.stones)<Number(recipe?.stones||50))
+        return make({action:'attack',stepId:'forge_stones',mapId:'hang_dong_co',enemyTypes:['thach_yeu','thach_ma','thach_giap_yeu'],
+          itemIds:[oreId],targetLabel:`Thiếu Linh Thạch rèn · ${P.Progress.stones}/${recipe?.stones||50} · săn quái lấy thưởng`});
+      return make({action:'interact',stepId:'forge_weapon',mapId:'tan_vien',ids:['tho_ren'],
+        craftItemId:'thiet_kiem',autoChoice:'Thiết Kiếm',itemIds:[oreId,'thiet_kiem'],
+        targetLabel:'Thợ Rèn · rèn Thiết Kiếm (2 Huyền Thiết + 50 Linh Thạch)'});
+    }
     const killTarget = objective.match(/(?:hạ|diệt|đánh bại)\s+(.+?)(?:\s+ở\s+|\s*\(|,|$)/i)?.[1]?.trim();
     if (killTarget && !task && !breakthroughStep?.place?.ids?.length) {
       const matchingMaps = [...mapDefinitions().values()].filter(def => (def.enemies || []).some(enemy =>
@@ -747,15 +827,36 @@
 
     // The game's current prerequisite is more specific than a broad HUD objective.
     // For example, gaining experience may first require earning seed credits.
+    if(breakthroughStep?.id==='gap_dai_phu' && !task && Q.canOpenSeedMenu?.() && Q.seedTaskList) {
+      const dailyPlan=dailyDuocCongPlan(Q,guide);
+      if(dailyPlan.dailyTask)return make({...dailyPlan,stepId:'gap_dai_phu'});
+    }
     if (breakthroughStep?.place?.ids?.length) {
       return make({ action: 'interact', objective: breakthroughStep.hint || objective,
         stepId: breakthroughStep.id,
+        questMeditation: breakthroughStep.id === 'day_dao_hanh',
         targetLabel: breakthroughStep.ngan || breakthroughStep.hint || objective,
         mapId: breakthroughStep.place.mapId, ids: breakthroughStep.place.ids,
         autoChoice: breakthroughStep.id === 'gap_dai_phu' ? 'Xem Sổ Việc Dược Công'
           : breakthroughStep.id === 'doi_hat' ? 'Mở Quầy Đổi Hạt'
           : breakthroughStep.id === 'luyen_dan' ? P.ITEMS?.[P.BREAKTHROUGH?.[P.Progress?.realmId]?.item]?.name
           : breakthroughStep.id === 'pha_quan' ? 'Bắt Đầu Phá Quan' : undefined });
+    }
+    if (Number(Q.stage)===8 && guide?.ids?.some(id=>/^plot_/.test(id)) && P.Farm?.state) {
+      const plots=guide.ids.filter(id=>/^plot_/.test(id));
+      const ready=plots.filter(id=>P.Farm.ready?.(id));
+      const empty=plots.filter(id=>P.Farm.isEmpty?.(id));
+      const dry=plots.filter(id=>P.Farm.canWater?.(id));
+      const base={mapId:'vuon_ca_nhan'};
+      if(ready.length)return make({...base,action:'interact',ids:ready,autoChoice:'Thu hoạch',stepId:'garden_harvest',targetLabel:'Thu hoạch linh thảo đã chín'});
+      if(empty.length)return make({...base,action:'interact',ids:empty,stepId:'garden_plant',targetLabel:'Gieo hạt Linh Diệp và Huyết Thảo'});
+      if(dry.length && P.Farm.hasWaterAccess?.()===false)return make({...base,action:'interact',ids:['ho_bich_thuy'],autoChoice:'Múc nước',stepId:'garden_scoop_water',targetLabel:'Múc nước trước khi tưới cây'});
+      if(dry.length)return make({...base,action:'interact',ids:dry,autoChoice:'Tưới',stepId:'garden_water',targetLabel:'Tưới linh thảo'});
+      if(plots.every(id=>P.Farm.state[id]))return make({...base,action:'wait',ids:plots,stepId:'garden_wait',targetLabel:'Cây đang lớn · chờ chín để thu hoạch'});
+    }
+    if (guide?.ids?.includes('ho_bich_thuy') && P.Farm?.hasWaterAccess?.() !== true) {
+      return make({action:'interact',mapId:'vuon_ca_nhan',ids:['ho_bich_thuy'],
+        stepId:'garden_scoop_water',autoChoice:'Múc nước',targetLabel:'Múc nước ở Ao Bích Thuỷ'});
     }
     if (guide?.mapId && guide?.ids?.length) {
       return make({ action: 'interact', targetLabel: objective,
@@ -817,9 +918,9 @@
       }))
       .filter(item => item.distance <= config.maxDistance);
 
-    if (autoMode === 'quest' && config.avoidBoss) candidates = candidates.filter(item => !item.boss);
+    if (autoMode === 'quest' && config.avoidBoss && !plan?.requiredBoss) candidates = candidates.filter(item => !item.boss);
     if (config.priority === 'Yêu Vương') candidates = candidates.filter(item => item.boss);
-    else if (config.priority === 'Yêu Thú') candidates = candidates.filter(item => !item.boss);
+    else if (config.priority === 'Yêu Thú' && !plan?.requiredBoss) candidates = candidates.filter(item => !item.boss);
 
     if (config.priority === 'Khí Huyết thấp') candidates.sort((a, b) => a.ratio - b.ratio || a.distance - b.distance);
     else if (config.nearest) candidates.sort((a, b) => a.distance - b.distance);
@@ -964,7 +1065,7 @@
       return choose(buttons.find(button => fold(button.textContent).includes(wanted)),
         `HỎI ĐẠO · chọn đáp án: ${answer}`);
     }
-    if (/tien do\s+\d+\s+5 cau dung/.test(dialogText))
+    if (/tien do\s*:\s*\d+\s*\/\s*5 cau dung|tien do\s+\d+\s+5 cau dung/.test(dialogText))
       return choose(findButton(/bat dau hoi dao/), 'HỎI ĐẠO · bắt đầu câu hỏi');
     if (/dung roi|cau tiep theo/.test(dialogText))
       return choose(findButton(/cau tiep theo/), 'HỎI ĐẠO · sang câu tiếp theo');
@@ -984,6 +1085,16 @@
   function handleQuestOverlay() {
     const visible = element => element && !element.classList.contains('hidden') &&
       getComputedStyle(element).display !== 'none' && element.getClientRects().length;
+    const zone = document.querySelector('#khu-panel');
+    if (visible(zone)) {
+      const close=zone.querySelector('.khu-x');
+      if(close && !close.disabled && Date.now()-lastDialogChoiceAt>=1000) {
+        lastDialogChoiceAt=Date.now();close.click();
+        lastQuestTarget='';lastQuestRouteAt=0;
+        report('quest','GỠ CHẶN · đóng bảng Chọn khu, tiếp tục mục tiêu nhiệm vụ');
+      }
+      return true;
+    }
     const encyclopedia = document.querySelector('#encyclopedia');
     if (visible(encyclopedia)) {
       if (Date.now() - lastDialogChoiceAt >= 1000) {
@@ -1021,6 +1132,13 @@
       const label = fold(text);
       let score = 0;
       let reason = '';
+      if (/^bao cong$/.test(label) && /giao|tra nhiem vu|quay ve/.test(context) && plan?.ids?.length)
+        return {index,score:210,reason:'Trả nhiệm vụ tại đúng NPC trong kế hoạch'};
+      if (/^nhan viec$/.test(label) && plan?.ids?.includes('ly_thanh') && /gap|huan su/.test(context))
+        return {index,score:210,reason:'Nhận nhiệm vụ Huấn Sư Huynh'};
+      if ((plan?.dailyTask || plan?.stepId==='daily_turn_in') &&
+          /doi|quy doi|mua|quay|huy nhiem vu/.test(label))
+        return {index,score:-1000,reason:'Đang làm Dược Công, không đổi hạt hoặc mua đan'};
       if (plan?.dailyTask) {
         const taskName=fold(plan.dailyTask.shortName || plan.dailyTask.name);
         if (/^(nhan viec nay|nhan viec duoc cong|xem so viec duoc cong)/.test(label) ||
@@ -1100,7 +1218,9 @@
   function choiceContext(plan, labels) {
     // Progress counters and option order must not erase a failed choice's identity.
     const normalize = value => fold(value || '').replace(/\d+\s*\/\s*\d+/g, '#/#');
-    return JSON.stringify(['v2', window.PNTT?.Quest?.stage, plan?.stepId || '', normalize(plan?.objective),
+    const daily=plan?.dailyTask || plan?.stepId==='daily_turn_in';
+    return JSON.stringify([daily?'daily-v3':(plan?.gardenStage8||plan?.gardenWorkflow)?'garden-v5':/cau/.test(fold(plan?.autoChoice||''))?'fishing-v3':'v2', ...(daily?[plan?.dailyTask?.id||'',
+      safe(()=>window.__tienloWorkflow?.dailyState(window.PNTT?.Quest),'')]:[]), window.PNTT?.Quest?.stage, plan?.stepId || '', normalize(plan?.objective),
       plan?.mapId || '', labels.map(normalize).sort()]);
   }
 
@@ -1115,7 +1235,8 @@
     const workflow = pendingChoice.workflow;
     const stepSucceeded = workflow && safe(() => window.__tienloWorkflow?.evaluate(workflow.step,workflow.before,
       window.__tienloWorkflow.snapshot(window.PNTT||{},document,workflow.step.itemId))) === 'success';
-    const changed = workflow?.step.action === 'open_recipe' ? !!stepSucceeded : stepSucceeded || progress !== pendingChoice.progress;
+    const changed = workflow?.step.action === 'open_recipe' || workflow?.step.action.startsWith('daily_') || workflow?.step.action.startsWith('garden_') || workflow?.step.action==='start_fishing'
+      ? !!stepSucceeded : stepSucceeded || progress !== pendingChoice.progress;
     if (!changed && !forceFailure && Date.now() - pendingChoice.time < 15000) return;
     const entry = { ...pendingChoice, at: new Date().toISOString(), outcome: changed ? 'success' : 'fail',
       reason: 'choice_result', dialog: pendingChoice.dialog, version: HOOK_VERSION };
@@ -1129,6 +1250,7 @@
     choiceValues.set(valueKey, entry.value);
     if (changed) learnedChoices.set(entry.key, entry.label);
     else if (learnedChoices.get(entry.key) === entry.label) learnedChoices.delete(entry.key);
+    if(changed && pendingChoice.attemptContext)window.__tienloWorkflow?.success?.(pendingChoice.attemptContext,pendingChoice.label);
     post({ type: 'TIENLO_QUEST_FAILURE', payload: entry });
     reportOnce(`learn:${entry.key}`, 'quest', changed
       ? `ĐÃ NHỚ · ${entry.label} · nhiệm vụ có tiến triển`
@@ -1148,10 +1270,11 @@
       && b.getAttribute('role') !== 'tab' && (plan?.stepId === 'luyen_dan' || !b.matches('.forge-slot')));
     const labels = buttons.map(b => dialogChoiceLabel(b, plan));
     pendingChoice = { key: choiceContext(plan, labels), label: dialogChoiceLabel(button, plan),
+      attemptContext:plan?.dailyTask?choiceContext(plan,labels):JSON.stringify([window.PNTT?.SceneWorld?.player?.cfg?.name,window.PNTT?.Quest?.stage,readHud().objectives]),
       character: window.PNTT?.SceneWorld?.player?.cfg?.name || readHud().name || '',
       time: Date.now(), progress: JSON.stringify([window.PNTT?.Quest?.stage, readHud().objectives]),
       optionIndex: buttons.indexOf(button), dialog: choiceRoot.textContent.trim().slice(0, 6000) };
-    if (window.__tienloWorkflow && plan?.stepId==='luyen_dan') {
+    if (window.__tienloWorkflow && (plan?.stepId==='luyen_dan'||plan?.dailyTask||plan?.gardenStage8||plan?.gardenWorkflow||/^Tự động câu|^Thả câu/.test(button.textContent.trim()))) {
       const step=window.__tienloWorkflow.observe(button,plan);
       if(step.action!=='select_option')pendingChoice.workflow={step,chainKey:JSON.stringify([window.PNTT?.Quest?.stage,step.itemId]),
         before:window.__tienloWorkflow.snapshot(window.PNTT||{},document,step.itemId)};
@@ -1161,6 +1284,15 @@
     const button = event.target?.closest?.('#dialog button');
     if (button) rememberDialogClick(button);
   }, true);
+
+  function handleChienBangRound(P,plan) {
+    if(P.SceneWorld?.map?.data?.id!==(P.ChienBang?.MAP_DAI||'chien_bang_dai'))return false;
+    // Arena countdown, outcome and return are controlled by the server.
+    pendingChoice=null;holdQuestPosition();setNativeAuto(true);resetQuestWatchdog(plan);
+    P.Input?.pressAttack?.();
+    reportOnce('chienbang-active','quest','CHIẾN BẢNG · đang trong đấu trường, chờ kết quả máy chủ',5000);
+    return true;
+  }
 
   function handleChienBangDialog(plan, root, buttons) {
     const P = window.PNTT || {};
@@ -1194,7 +1326,7 @@
   }
 
   function clickQuestDialogDecision(plan) {
-    if (Date.now() - lastDialogChoiceAt < 700) return false;
+    if (Date.now() - lastDialogChoiceAt < 350) return false;
     const root = document.querySelector('#dialog');
     if (!root || root.classList.contains('hidden') || !root.getClientRects().length) return false;
     const visibleButton = button => button && !button.disabled && button.getClientRects().length &&
@@ -1202,6 +1334,33 @@
     const detail = root.querySelector('.forge-detail');
     const choiceRoot = detail && detail.getClientRects().length ? detail : root;
     const allButtons = [...choiceRoot.querySelectorAll('button')];
+    if(plan?.dailyTask || plan?.stepId==='daily_turn_in') {
+      const texts=allButtons.filter(visibleButton).map(b=>fold(b.textContent));
+      if(texts.some(t=>/doi goi hat|van doi|quy doi/.test(t)) &&
+          !texts.some(t=>/giao nguyen lieu|giao ba ca|nhan viec|xem so viec/.test(t))) {
+        const back=allButtons.filter(visibleButton).find(b=>
+          b.id==='dialog-close' || /^(lui buoc|quay lai|thoi|de sau|dong)/.test(fold(b.textContent.trim())));
+        if(back){lastDialogChoiceAt=Date.now();back.click();dialogDecision.signature='';dialogDecision.ai=null;
+          report('quest','ĐỔI CÁCH · rời quầy đổi hạt, tiếp tục nhận/giao việc Dược Công');return true;}
+      }
+    }
+    if(plan?.stepId==='forge_weapon') {
+      const matching=allButtons.filter(visibleButton);
+      const recipe=matching.find(b=>b.matches('.forge-slot') &&
+        fold([b.title,b.getAttribute('aria-label'),b.textContent].join(' ')).includes(fold(plan.autoChoice)));
+      const title=detail?.querySelector('h3')?.textContent || detail?.textContent || '';
+      const craft=detail && fold(title).includes(fold(plan.autoChoice)) &&
+        matching.find(b=>/^ren(?: ngay)?$/.test(fold(b.textContent.trim())));
+      if(craft) {
+        if(pendingForgedWeapon && Date.now()-forgeAttempt.at<8000) return true;
+        if(forgeAttempt.count>=4) {stop('safe','DỪNG RÈN · 4 lần thử chưa có món trong túi; cần kiểm tra log');return true;}
+        pendingForgedWeapon=plan.craftItemId;
+        forgeAttempt={count:forgeAttempt.count+1,at:Date.now(),before:Number(window.PNTT?.Inventory?.count?.(plan.craftItemId))||0,equipCount:0};
+        lastDialogChoiceAt=Date.now();craft.click();
+        report('quest',`RÈN · ${plan.autoChoice} · chờ món vào túi`);return true;}
+      if(recipe && !detail?.getClientRects().length) {lastDialogChoiceAt=Date.now();recipe.click();
+        report('quest',`CHỌN CÔNG THỨC · ${plan.autoChoice}`);return true;}
+    }
     const buttons = allButtons.filter(visibleButton).filter(button =>
       button.getAttribute('role') !== 'tab' &&
       (plan?.stepId === 'luyen_dan' || !button.matches('.forge-slot')));
@@ -1270,7 +1429,7 @@
     const P = window.PNTT || {};
     const requiredItem = P.BREAKTHROUGH?.[P.Progress?.realmId]?.item;
     const recipe = safe(() => P.Quest?.brewRecipe?.(requiredItem))?.recipe || [];
-    const neededHerbs = recipe.filter(item =>
+    const neededHerbs = plan?.gardenStage8 ? ['Linh Diệp','Huyết Thảo'] : recipe.filter(item =>
       (+safe(() => P.Inventory?.count?.(item.id), 0) || 0) < item.qty)
       .map(item => P.ITEMS?.[item.id]?.name).filter(Boolean);
     const labels = buttons.map(button => dialogChoiceLabel(button, plan));
@@ -1294,6 +1453,7 @@
     const fallback = waitedMs >= policy.dialog.exploreAfterMs
       ? labels.map((label,index) => ({index,label})).find(row =>
         buttons[row.index].id !== 'dialog-close' && row.label.trim() &&
+        (ranked.find(candidate=>candidate.index===row.index)?.score ?? -1000)>-1000 &&
         !/^(lui buoc|quay lai|de sau|dong|✕|×)$|thieu|xoa|vut|pha huy|huy nhiem vu|do sat/.test(fold(row.label)) &&
         (choiceValues.get(JSON.stringify([memoryKey, row.label])) || 0) >= 0) : null;
     if (fallback) fallback.reason = 'Chưa xác định được: thử nút đầu tiên chưa thất bại';
@@ -1310,6 +1470,7 @@
         ...(useVision?{region}:{}),
         dialog:choiceRoot.textContent.trim().slice(0,6000),options:labels,
         map:plan?.mapId || '',hpPercent:safe(()=>readState().hpPercent)}).then(result=>{
+          if(result?.visionFallback)reportOnce('vision-text-fallback','quest','AI · không chụp được ảnh; đã phân tích nội dung hội thoại bằng chữ',30000);
           if (dialogDecision.ai === requestState && dialogDecision.signature === signature) requestState.result=result;
         }).catch(error=>{reportOnce('vision-error','quest',`AI chưa phân tích được · ${error.message} · dùng fallback`,5000);}).finally(()=>{requestState.pending=false;});
     }
@@ -1318,6 +1479,7 @@
     const aiChoice = config.aiPlanner !== false && Number.isInteger(aiIndex) && aiIndex >= 0 && aiIndex < buttons.length &&
       decision.action === 'select_dialog_option' && decision.confidence >= .6 && decision.confidence <= 1 &&
       decision.label === labels[aiIndex] && buttons[aiIndex].id !== 'dialog-close' && visibleButton(buttons[aiIndex]) &&
+      (ranked.find(candidate=>candidate.index===aiIndex)?.score ?? -1000)>-1000 &&
       !/thieu|xoa|vut|pha huy|huy nhiem vu|do sat|^(lui buoc|quay lai|dong|de sau|✕|×)$/.test(fold(labels[aiIndex])) &&
       (choiceValues.get(JSON.stringify([memoryKey,labels[aiIndex]])) || 0) >= 0
       ? {index:aiIndex,reason:`AI · ${String(decision.reason || '').slice(0,400)}`} : null;
@@ -1328,7 +1490,7 @@
       if (dialogDecision.acted.size > 50) dialogDecision.acted.delete(dialogDecision.acted.values().next().value);
       const button = buttons[choice.index];
       if (window.__tienloWorkflow && !window.__tienloWorkflow.attempt(
-          JSON.stringify([window.PNTT?.SceneWorld?.player?.cfg?.name,window.PNTT?.Quest?.stage,readHud().objectives]),labels[choice.index])) {
+          plan?.dailyTask?memoryKey:JSON.stringify([window.PNTT?.SceneWorld?.player?.cfg?.name,window.PNTT?.Quest?.stage,readHud().objectives]),labels[choice.index])) {
         choiceValues.set(JSON.stringify([memoryKey,labels[choice.index]]),-20);
         logDialogFailure(plan,choiceRoot,allButtons,'repeated_action_limit',waitedMs);
         report('quest',`ĐỔI CÁCH · ${labels[choice.index]} đã thử 4 lần mà quest chưa tiến triển`);
@@ -1387,7 +1549,15 @@
     const P = window.PNTT || {};
     const bag = P.Inventory?.bag || {};
     const items = (plan.itemIds || []).map(id => `${id}:${Number(bag[id]) || 0}`).join('|');
-    return [P.Quest?.stage, ...readHud().objectives, items].join('|');
+    const meditationProgress=(plan.questMeditation || plan.farmXp) ? JSON.stringify([
+      Number(P.Progress?.exp)||0,Number(P.SceneWorld?.player?.exp)||0,P.Progress?.realmId,
+      P.SceneWorld?.player?.state,!!P.SceneWorld?.player?.meditateBonusExp]) : '';
+    const fishingProgress=/cau/.test(fold(plan.autoChoice||'')) ? JSON.stringify([!!P.SceneWorld?.fishing,!!P.SceneWorld?.fishingAuto,QFishingCount()]) : '';
+    function QFishingCount(){return P.Quest?.seedQuestProgress?.() || P.Quest?.flags?.[P.Quest?.LINH_NGU_CATCH_FLAG||'linh_ngu_cau_duoc'] || 0;}
+    const gardenProgress=(plan.gardenWorkflow || Number(P.Quest?.stage)===8) ? JSON.stringify([
+      P.Farm?.hasWaterAccess?.(),Object.entries(P.Farm?.state||{}).map(([id,row])=>[id,row.seed,row.at,row.wet]),
+      ['hat_linh_diep','hat_huyet_thao','linh_diep','huyet_thao'].map(id=>P.Inventory?.count?.(id))]) : '';
+    return [P.Quest?.stage, ...readHud().objectives, items, meditationProgress,gardenProgress,fishingProgress].join('|');
   }
 
   function resetQuestWatchdog(plan = null) {
@@ -1417,7 +1587,10 @@
       .filter(button => button.getClientRects().length && !button.disabled)
       .map(button => button.textContent.trim()).filter(Boolean) : [];
     let analysis = 'chưa xác định nguyên nhân';
-    if (encyclopedia) analysis = 'vòng lặp mở Bách Khoa';
+    if (player?.downed) analysis = 'nhân vật đang gục';
+    else if (plan.questMeditation && player?.state === 'sit' && player?.meditateBonusExp)
+      analysis = 'thiền tăng Đạo Hạnh đã bật nhưng XP không đổi trong thời gian game chạy';
+    else if (encyclopedia) analysis = 'vòng lặp mở Bách Khoa';
     else if (gacha) analysis = 'kẹt tại tủ bí tịch';
     else if (dialog) analysis = `kẹt hội thoại: ${buttons.join(' / ') || 'không có lựa chọn'}`;
     else if (plan.mapId && plan.mapId !== scene.map?.data?.id) analysis = 'chưa tới đúng bản đồ nhiệm vụ';
@@ -1428,7 +1601,12 @@
     const snapshot = {
       at: new Date().toISOString(), version: HOOK_VERSION, stalledSeconds, analysis,
       quest: { stage: P.Quest?.stage, title: hud.questStage, objectives: hud.objectives },
+      player: { state: player?.state || '', downed: !!player?.downed,
+        hp: player?.hp, hpMax: player?.hpMax, meditateBonusExp: !!player?.meditateBonusExp,
+        exp: Number(P.Progress?.exp) || 0, realmId: P.Progress?.realmId || '',
+        gameTime: Number.isFinite(P.Game?.time) ? P.Game.time : null },
       plan: { action: plan.action, actionLabel: plan.actionLabel, targetLabel: plan.targetLabel,
+        stepId: plan.stepId, questMeditation: !!plan.questMeditation,
         mapId: plan.mapId, ids: plan.ids || [], itemIds: plan.itemIds || [] },
       world: { mapId: scene.map?.data?.id || '', map: scene.map?.data?.name || '',
         x: Number.isFinite(+player?.x) ? Math.round(player.x) : null,
@@ -1457,6 +1635,20 @@
     if (questWatchdog.key !== key || questWatchdog.signature !== signature) {
       resetQuestWatchdog(plan);
       return false;
+    }
+    if(plan.mapId && P.SceneWorld?.map?.data?.id!==plan.mapId) {
+      const player=P.SceneWorld?.player,mapId=P.SceneWorld?.map?.data?.id;
+      const portal=String(lastQuestTarget).match(/^portal:([^:]+):[^:]+:(\d+),(\d+)$/);
+      const map=P.SceneWorld?.map,tile=map?.pxWidth&&map?.width?map.pxWidth/map.width:32;
+      const distance=portal&&portal[1]===mapId?Math.hypot(player.x-(Number(portal[2])+.5)*tile,player.y-(Number(portal[3])+.5)*tile):null;
+      const travel=questWatchdog.travel;
+      if(!travel || travel.mapId!==mapId || travel.target!==lastQuestTarget) {
+        questWatchdog.travel={mapId,target:lastQuestTarget,distance};
+        // A map transition is real progress; changing a route alone is not.
+        if(travel && travel.mapId!==mapId)questWatchdog.progressAt=now;
+      } else if(distance!=null && travel.distance!=null && distance<travel.distance-24) {
+        travel.distance=distance;questWatchdog.progressAt=now;
+      }
     }
     const stalledFor = now - questWatchdog.progressAt;
     if (stalledFor < 20000 || now - questWatchdog.snapshotAt < 15000) return false;
@@ -1569,9 +1761,10 @@
       defs.set(value.id, value);
       pending.push(value);
     };
-    Object.values(data).forEach(add);
     const current = window.PNTT?.SceneWorld?.map?.data;
-    add(current);
+    const liveMap=window.PNTT?.SceneWorld?.map;
+    if(current)add({...current,portals:liveMap.portals||current.portals||[]});
+    Object.values(data).forEach(add);
     for (const value of worldMaps.values()) {
       add(safe(() => data.get?.(value.id), value));
     }
@@ -1588,7 +1781,7 @@
   function saveWorldMaps() {
     if (!helperWindow || helperWindow.closed) return;
     const compact = object => Object.fromEntries(Object.entries(object || {}).filter(([key, value]) =>
-      ['id','type','name','x','y','r','toMap','toX','toY','byHand'].includes(key)
+      ['id','type','name','x','y','r','tx','ty','toMap','toX','toY','byHand'].includes(key)
       && ['string','number','boolean'].includes(typeof value)));
     for (const def of mapDefinitions().values()) {
       const map = { id: def.id, name: def.name, width: def.width, height: def.height,
@@ -1604,13 +1797,16 @@
   }
 
   // Use the same feet-anchored collision rectangle as Player movement.
-  function safePathRoute(map, sx, sy, ex, ey) {
+  function safePathRoute(map, sx, sy, ex, ey, flying = !!window.PNTT?.SceneWorld?.player?.flying) {
     const P = window.PNTT || {};
     const tile = +P.CONFIG?.TILE || 32;
     const halfW = (+P.CONFIG?.PLAYER?.HITBOX_W || 18) / 2;
     const height = +P.CONFIG?.PLAYER?.HITBOX_H || 24;
     if (!map?.rectBlocked || !P.Pathfinder?.find) return [];
-    const clear = (x, y) => !map.rectBlocked(x - halfW, y - height, x + halfW, y);
+    const airborne = flying && typeof map.rectFlyBlocked === 'function';
+    const clear = (x, y) => airborne
+      ? !map.rectFlyBlocked(x - halfW, y - height, x + halfW, y, 0, 0)
+      : !map.rectBlocked(x - halfW, y - height, x + halfW, y);
     const segmentClear = (a, b) => {
       const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 4));
       for (let i = 0; i <= steps; i++)
@@ -1622,7 +1818,7 @@
     if (segmentClear(start, end)) return [end];
     const grid = {
       width: map.width, height: map.height,
-      isBlockedTile: (x, y) => map.isBlockedTile(x, y)
+      isBlockedTile: (x, y) => (!airborne && map.isBlockedTile(x, y))
         || !clear((x + .5) * tile, (y + .5) * tile)
     };
     const cells = P.Pathfinder.find(grid, Math.floor(sx / tile), Math.floor(sy / tile),
@@ -1659,21 +1855,22 @@
     const tile = +P.CONFIG?.TILE || 32;
     const scenery = targetKey.startsWith('scn:') || scene.map?.interactables?.includes(obj) || scene.interactables?.includes(obj);
     const centerY = scenery ? obj.y : obj.y - tile / 2;
-    // Targeting.propReach is a selection radius, not permission to interact remotely.
+    // Native scenery E interaction uses Targeting.propReach; props keep a close approach.
     const nativeReach = +safe(() => P.Targeting?.propReach?.(obj), obj.r || 40) || 40;
-    const reach = Math.min(48, Math.max(12, nativeReach - 8));
+    const reach = scenery ? Math.max(12, nativeReach - 4) : Math.min(48, Math.max(12, nativeReach - 8));
     const candidates = [{ x: obj.x, y: centerY }];
-    const radius = Math.max(22, reach - 7);
-    for (let index = 0; index < 12; index++) {
-      const angle = Math.PI * 2 * index / 12;
-      candidates.push({ x: obj.x + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius });
+    for (const radius of [reach, Math.max(12, reach - 7), reach / 2]) {
+      for (let index = 0; index < 24; index++) {
+        const angle = Math.PI * 2 * index / 24;
+        candidates.push({ x: obj.x + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius });
+      }
     }
     const routes = candidates.map(point => safe(() => safePathRoute(
-      scene.map, player.x, player.y, point.x, point.y, halfW, height), []))
+      scene.map, player.x, player.y, point.x, point.y, !!player.flying), []))
       .filter(route => Array.isArray(route) && route.length &&
         Math.hypot(route.at(-1).x - obj.x, route.at(-1).y - centerY) <= reach);
     routes.sort((a, b) => routeDistance(player, a) - routeDistance(player, b));
-    return { route: routes.length ? routes[Math.min(variant,routes.length-1)] : [], reach, centerY };
+    return { route: routes.length ? routes[Math.min(variant,routes.length-1)] : [], reach, interactionReach:Math.max(1,nativeReach-1), centerY };
   }
 
   function mapRoute(from, to) {
@@ -1694,8 +1891,10 @@
     while (queue.length) {
       const path = queue.shift();
       const def = defs.get(path[path.length - 1]);
-      const neighbors = [...new Set([...(def?.portals || []).filter(portal => !portal.byHand)
-        .map(portal => portal.toMap), ...(knownLinks[path[path.length - 1]] || [])].filter(Boolean))];
+      const neighbors = [...new Set((def ? def.portals.filter(portal => !portal.byHand)
+        .map(portal => portal.toMap) : knownLinks[path[path.length - 1]] || []).filter(Boolean))];
+      // Verified SceneWorld cave_entrance transition, not a tile portal.
+      if(path.at(-1)==='long_uyen' && !neighbors.includes('hang_dong_co'))neighbors.push('hang_dong_co');
       for (const neighbor of neighbors) {
         if (seen.has(neighbor)) continue;
         const next = [...path, neighbor];
@@ -1716,8 +1915,10 @@
     const maps = mapRoute(current, plan.mapId);
     if (!maps || maps.length < 2) {
       holdQuestPosition();
-      reportOnce(`quest-map-no-route:${current}:${plan.mapId}`, 'quest',
-        `Không tìm được chuỗi cổng ${current} → ${plan.mapId}`);
+      const snapshot=diagnoseQuestStall(plan,0);
+      post({type:'TIENLO_QUEST_FAILURE',payload:{...snapshot,outcome:'fail',reason:'map_route_missing',dialog:snapshot.ui.dialog,
+        character:player.cfg?.name||''}});
+      stop('safe',`DỪNG ĐƯỜNG ĐI · chưa có dữ liệu cổng ${current} → ${plan.mapId}; đã lưu log`);
       return true;
     }
     const nextMap = maps[1];
@@ -1730,9 +1931,15 @@
       const key = `portal:${current}:${nextMap}:${entry.portal.tx},${entry.portal.ty}`;
       const now = Date.now();
       if (!forceRoute && key === lastQuestTarget && now - lastQuestRouteAt < 1800) return true;
-      const route = safe(() => safePathRoute(scene.map, player.x, player.y,
-        entry.x, entry.y, (+P.CONFIG?.PLAYER?.HITBOX_W || 18) / 2,
-        +P.CONFIG?.PLAYER?.HITBOX_H || 24), []);
+      // Enter any walkable point inside the portal tile. Its center can be
+      // blocked for a feet-anchored hitbox, especially against the map edge.
+      const points=[{x:entry.x,y:entry.y}];
+      for(const dx of [.2,.5,.8])for(const dy of [.2,.5,.8])
+        points.push({x:(entry.portal.tx+dx)*tile,y:(entry.portal.ty+dy)*tile});
+      const routes=points.map(point=>safe(()=>safePathRoute(scene.map,player.x,player.y,point.x,point.y,!!player.flying),[]))
+        .filter(route=>Array.isArray(route)&&route.length&&Math.floor(route.at(-1).x/tile)===entry.portal.tx&&Math.floor(route.at(-1).y/tile)===entry.portal.ty);
+      routes.sort((a,b)=>routeDistance(player,a)-routeDistance(player,b));
+      const route=routes[0]||[];
       if (Array.isArray(route) && route.length) {
         scene.approach = null;
         safe(() => P.Player?.stand?.(player));
@@ -1891,7 +2098,33 @@
       `ĐÁNH · ${enemy.def?.name || enemy.name || plan.targetLabel} · còn ${candidates.length} mục tiêu`, 3000);
   }
 
+  function accountQuestCadence() {
+    const now=Date.now(),gameTime=window.PNTT?.Game?.time;
+    const gap=questCadenceAt?now-questCadenceAt:0;
+    // A background game can keep rendering at a very low frame rate while
+    // advancing only a fraction of a second. Count simulation time, not merely
+    // whether the clock changed, when deciding that gameplay has stalled.
+    const elapsed=Number.isFinite(gameTime) && Number.isFinite(questGameTime)
+      && gameTime>=questGameTime ? (gameTime-questGameTime)*1000 : null;
+    const gameplaySkipped=elapsed===null?0:Math.max(0,gap-Math.min(gap,elapsed));
+    if(gap>0 && gameplaySkipped>0) {
+      questWatchdog.progressAt+=gameplaySkipped;
+      if(questWatchdog.snapshotAt)questWatchdog.snapshotAt+=gameplaySkipped;
+    } else if(gap>3000) {
+      questWatchdog.progressAt+=gap-1000;
+      if(questWatchdog.snapshotAt)questWatchdog.snapshotAt+=gap-1000;
+    }
+    const frozen=document.hidden && elapsed===0;
+    if(gap>3000 || frozen && gap>0) {
+      const skipped=frozen?gap:Math.max(0,gap-1000);
+      if(dialogDecision.observedAt)dialogDecision.observedAt+=skipped;
+      if(pendingChoice)pendingChoice.time+=skipped;
+    }
+    questCadenceAt=now;questGameTime=gameTime;
+  }
+
   function questTick(forceRoute = false) {
+    accountQuestCadence();
     if (window.PNTT?.SceneWorld?.player?.downed || reviveState.since) return;
     if (retreatTick()) return;
     if (config.recoverHealth && recoveryTick()) return;
@@ -1904,7 +2137,60 @@
       return reportOnce('quest-no-world', 'quest', 'Chưa vào thế giới game');
     }
     if (questDefenseTick()) return;
-    const plan = analyzeQuest();
+    if(pendingForgedWeapon && (P.Quest?.flags?.ren_vu_khi_chinh ||
+        Number(P.Inventory?.count?.(pendingForgedWeapon))>forgeAttempt.before)) {
+      const weapon=pendingForgedWeapon;
+      if(P.Inventory?.isEquipped?.(weapon)) pendingForgedWeapon='';
+      else if(P.Inventory?.count?.(weapon)>0) {
+        if(Date.now()-forgeAttempt.at<1000) return;
+        if(forgeAttempt.equipCount>=4) return stop('safe','DỪNG TRANG BỊ · game chưa xác nhận sau 4 lần thử');
+        forgeAttempt.equipCount++;forgeAttempt.at=Date.now();
+        const result=safe(()=>P.Inventory?.equip?.(weapon));
+        if(P.Inventory?.isEquipped?.(weapon)) {pendingForgedWeapon='';
+          report('quest',`ĐÃ TRANG BỊ · ${P.ITEMS?.[weapon]?.name || weapon}`);}
+        else reportOnce('forge-equip-failed','quest',`CHƯA TRANG BỊ · ${result?.reason || 'chưa được game xác nhận'}`,5000);
+        return;
+      }
+    }
+    let plan = analyzeQuest();
+    if(plan.mapId==='hang_dong_co' && scene.map?.data?.id==='long_uyen') {
+      plan={...plan,action:'interact',stepId:'cave_enter',mapId:'long_uyen',ids:['hang_dong_cua'],
+        autoChoice:P.Quest?.flags?.hang_dong_da_lay_ruong?'Vào Lại Hang':'Bước Vào Hang',targetLabel:'Cửa Hang Động · vào hang qua tương tác E'};
+    }
+    if(plan.action==='manual') {
+      holdQuestPosition();setNativeAuto(false);
+      return stop('safe',`DỪNG AUTO · cần thao tác thủ công: ${plan.targetLabel}`);
+    }
+    if(handleChienBangRound(P,plan))return;
+    if(plan.action==='equip') {
+      const id=plan.equipItemId;
+      if(questWatchdogTick(plan))return;
+      if(Date.now()-forgeAttempt.at<2000)return;
+      forgeAttempt.at=Date.now();
+      const result=safe(()=>P.Inventory?.equip?.(id));
+      if(P.Inventory?.isEquipped?.(id)) {resetQuestWatchdog(plan);report('quest',`ĐÃ TRANG BỊ · ${P.ITEMS?.[id]?.name||id}`);}
+      else reportOnce('quest-equip:'+id,'quest',`CHƯA TRANG BỊ · ${result?.reason||result?.why||'chờ game xác nhận'}`,5000);
+      return;
+    }
+    if(['forge_ore','forge_stones'].includes(plan.stepId)&&visibleDialog()) {
+      const root=visibleDialog();
+      const back=[...root.querySelectorAll('button')].find(button=>visibleButton(button)&&!button.disabled&&
+        (button.id==='dialog-close'||/^(lui buoc|quay lai|de sau|dong)$/.test(fold(button.textContent.trim()))));
+      if(back){back.click();dialogDecision.signature='';dialogDecision.ai=null;pendingChoice=null;return;}
+      reportOnce('forge-close-missing','quest','Chưa tìm được nút thoát hội thoại cũ để đi tìm nguyên liệu',5000);
+    }
+    const partyAction=window.__tienloPartyAuto?.tick(P,!!plan.partyBoss?.nearRegistrar &&
+      ['party_boss_wait','party_boss_register'].includes(plan.stepId));
+    if(partyAction&&['inviting','accepting','leaving','cooldown','pending'].includes(partyAction.phase)) {
+      holdQuestPosition();setNativeAuto(false);resetQuestWatchdog(plan);
+      const message=partyAction.phase==='inviting'?'Mời tổ đội · '+partyAction.name:partyAction.phase==='accepting'?'Nhận lời mời · '+partyAction.name:partyAction.phase==='leaving'?'Đã chờ 3 phút chưa vào bí cảnh · yêu cầu rời đội':'Chờ game xác nhận tổ đội';
+      reportOnce('party-auto:'+partyAction.phase+':'+(partyAction.name||''),'quest',message,5000);return;
+    }
+    if(plan.stepId==='party_boss_wait') {
+      holdQuestPosition();setNativeAuto(false);resetQuestWatchdog(plan);
+      reportOnce('party-boss-wait:'+plan.partyBoss?.count,'quest',`CHỜ HỢP LỆ · ${plan.targetLabel} · Auto Quest sẽ tiếp tục khi đủ điều kiện`,10000);
+      return;
+    }
     if (plan.action === 'daily_done') return stop('off',plan.targetLabel);
     if (plan.utility) {
       const selected=plan.utility.selected;
@@ -1918,8 +2204,12 @@
       }
       if(plan.action==='wait') {holdQuestPosition();resetQuestWatchdog(plan);return;}
     }
-    if (questWatchdogTick(plan)) return;
+    if(plan.stepId==='garden_wait' && !visibleDialog()) {
+      holdQuestPosition();resetQuestWatchdog(plan);
+      reportOnce('garden-wait','quest','CHỜ HỢP LỆ · cây đang lớn; Auto Quest tiếp tục khi cây chín',10000);return;
+    }
     if (handleQuestOverlay()) return;
+    if (questWatchdogTick(plan)) return;
     const hudDialogOpen = typeof P.HUD?.dialogOpen === 'function'
       ? safe(() => P.HUD.dialogOpen(), false)
       : !!P.HUD?.dialogOpen;
@@ -1950,11 +2240,6 @@
       if (maybeSwitchQuietZone(plan)) return;
       return questAttackTick(plan, forceRoute);
     }
-    if (plan.action === 'manual') {
-      holdQuestPosition();
-      return reportOnce(`quest-manual:${plan.targetLabel}`, 'quest',
-        `THỦ CÔNG · ${plan.targetLabel}`);
-    }
 
     const nativeGuide = safe(() => P.Quest?.guidePlace?.());
     const guide = { mapId: plan.mapId || nativeGuide?.mapId || currentMap,
@@ -1980,16 +2265,27 @@
     }
     const now = Date.now();
     const changed = target.key !== lastQuestTarget;
-    if (!forceRoute && !changed && now - lastQuestRouteAt < 3500) return;
 
     const approach = routeToInteractable(scene, player, target.obj, target.key, questWatchdog.recoveries || 0);
     const route = approach.route;
     scene.approach = null;
     const interactionDistance = Math.hypot(target.obj.x - player.x, approach.centerY - player.y);
-    if (interactionDistance <= approach.reach) {
+    if (interactionDistance <= (approach.interactionReach ?? approach.reach)) {
+      if(!forceRoute && !changed && now-lastQuestRouteAt<500)return;
       safe(() => player.setPath?.([]));
       lastQuestTarget = target.key;
       lastQuestRouteAt = now;
+      if (plan.questMeditation) {
+        scene.approach=null;
+        setNativeAuto(false);
+        if(player.state !== 'sit' || !player.meditateBonusExp) {
+          if(!P.Input?.pressInteract) return reportOnce('quest-meditate-missing','quest','ĐẢ TỌA QUEST · runtime thiếu tương tác đài đá',5000);
+          if(player.state === 'sit') safe(()=>P.Player?.stand?.(player));
+          P.Input.pressInteract();
+          return reportOnce('quest-meditate-start','quest','ĐẢ TỌA QUEST · tương tác đài đá để bật thiền tăng Đạo Hạnh, chờ xác nhận',5000);
+        }
+        return reportOnce('quest-meditate','quest',`ĐẢ TỌA QUEST · tích Đạo Hạnh tại đài đá · ${Math.floor(Number(P.Progress?.exp) || 0)}`,5000);
+      }
       if (typeof P.Input?.pressInteract === 'function') {
         P.Input.pressInteract();
         return reportOnce(`quest-arrived:${target.key}`, 'quest',
@@ -2002,6 +2298,7 @@
       return reportOnce(`quest-arrived:${target.key}`, 'quest',
         `ĐÃ LẠI GẦN · đang tương tác ${plan.targetLabel}`, 1800);
     }
+    if (!forceRoute && !changed && now - lastQuestRouteAt < 1200) return;
     if (Array.isArray(route) && route.length) {
       safe(() => P.Player?.stand?.(player));
       safe(() => player.setPath?.(route));
@@ -2415,7 +2712,8 @@
         meditateAt = Date.now();
         meditating = 'pending';
         report('meditate', 'Thần Thức thấp — đang đả tọa');
-      } else if (meditating === true && data.spPercent >= config.spResumeThreshold) {
+      } else if (meditating === true && data.spPercent >= config.spResumeThreshold &&
+          !(mode === 'quest' && safe(()=>analyzeQuest().questMeditation,false))) {
         safe(() => window.PNTT?.Player?.stand?.(window.PNTT?.SceneWorld?.player));
         meditating = false;
         lastQuestTarget = ''; lastQuestRouteAt = 0; lastMovedAt = Date.now();
@@ -2492,12 +2790,13 @@
     resetZoneQuestState();
     resetQuestWatchdog();
     mode = autoMode;
+    questCadenceAt=0;questGameTime=null;
     retreatState = {mapId:scene.map?.data?.id, hp:scene.player?.hp, bp:scene.player?.bp,
       hits:[],until:0,routeAt:0};
     kiteUntil = kiteRouteAt = kiteAttackAt = 0;
     setNativeAuto(autoMode === 'farm');
     timers = autoMode === 'quest'
-      ? [setInterval(questTick, 1000), setInterval(safetyTick, 1000)]
+      ? [setInterval(questTick, 500), setInterval(safetyTick, 1000)]
       : [setInterval(() => combatTick('farm'), 1500), setInterval(move, 9000), setInterval(safetyTick, 1000)];
     timers.push(setInterval(kiteTick, 150));
     timers.push(setInterval(flightTick, 1000));
@@ -2522,6 +2821,7 @@
   function onMessage(event) {
     if (event.origin === HELPER_ORIGIN && event.data?.type === 'TIENLO_LINK_PING') {
       helperWindow = event.source;
+      setButton(mode === 'quest' ? '✦ Auto Quest' : mode === 'farm' ? '✦ Auto Farm' : '✓ Đã kết nối', true);
       if (!window.__tienloExtensionLiveTimer)
         window.__tienloExtensionLiveTimer = setInterval(sendState, 1000);
       sendState();
@@ -2564,7 +2864,7 @@
       if (Array.isArray(backlog)) backlog.forEach(payload => post({ type: 'TIENLO_QUEST_FAILURE', payload }));
     }, 500);
     window.__tienloExtensionLiveTimer = setInterval(sendState, 1000);
-    setButton('✓ Đã kết nối', true);
+    setButton(mode === 'quest' ? '✦ Auto Quest' : mode === 'farm' ? '✦ Auto Farm' : '✓ Đã kết nối', true);
     setTimeout(() => report('ready', 'Đã kết nối qua extension'), 350);
     setTimeout(() => { try { helperWindow.blur(); window.focus(); } catch {} }, 700);
   }

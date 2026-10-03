@@ -1,3 +1,4 @@
+import { buildQuestPrompt } from './quest-prompt.js';
 const $=selector=>document.querySelector(selector);
 let data=null,busy=false;
 const node=(tag,text,cls)=>{const el=document.createElement(tag);el.textContent=text;if(cls)el.className=cls;return el;};
@@ -16,7 +17,14 @@ function render(){
     for(const [value,text]of [['todo','Cần kiểm tra/sửa'],['fixed','Đã sửa · chưa test game'],['verified','Đã kiểm chứng trong game']]){const option=node('option',text);option.value=value;select.append(option);}select.value=fix.status||'todo';label.append(select);
     const note=node('textarea','');note.value=fix.note||'';note.placeholder='Nguyên nhân / cách sửa / phiên bản / kết quả test';note.setAttribute('aria-label',`Ghi chú giai đoạn ${q.stage}`);
     const save=node('button','Lưu trạng thái fix');save.onclick=async()=>{save.disabled=true;try{const response=await fetch('/api/quest-line',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stage:q.stage,status:select.value,note:note.value})});if(!response.ok)throw Error();$('#sync').textContent='Đã lưu trạng thái fix trên server';}catch{$('#sync').textContent='Không lưu được trạng thái fix';}finally{save.disabled=false;}};
-    article.append(label,note,save);const details=node('details','');details.append(node('summary',`Log gần nhất (${q.events.length})`),node('pre',JSON.stringify(q.events,null,2)));article.append(details);root.append(article);
+    article.append(label,note,save);
+    const promptButton=node('button','Tạo prompt phân tích & sửa lỗi');
+    const promptBox=node('textarea','');promptBox.hidden=true;promptBox.readOnly=true;promptBox.rows=12;promptBox.setAttribute('aria-label',`Prompt sửa lỗi giai đoạn ${q.stage}`);
+    const copyPrompt=node('button','Sao chép prompt');copyPrompt.hidden=true;
+    promptButton.onclick=()=>{promptBox.value=buildQuestPrompt(q,{status:select.value,note:note.value});promptBox.hidden=false;copyPrompt.hidden=false;promptBox.focus();$('#sync').textContent='Prompt đã tạo từ log hiện tại. Sao chép và gửi vào cuộc trò chuyện để phân tích, sửa lỗi.';};
+    copyPrompt.onclick=async()=>{try{await navigator.clipboard.writeText(promptBox.value);$('#sync').textContent='Đã sao chép prompt — dán vào cuộc trò chuyện này.';}catch{promptBox.focus();promptBox.select();$('#sync').textContent='Không truy cập được clipboard. Nhấn Ctrl+C để sao chép prompt đã chọn.';}};
+    article.append(promptButton,promptBox,copyPrompt);
+    const details=node('details','');details.append(node('summary',`Log gần nhất (${q.events.length})`),node('pre',JSON.stringify(q.events,null,2)));article.append(details);root.append(article);
   }
 }
 async function refresh(){

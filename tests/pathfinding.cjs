@@ -51,3 +51,9 @@ assert.equal(context.safePathRoute(map,48,112,176,112).length,0,'Disconnected ar
 assert.equal(source.includes('P.Pathfinder?.route?.'),false,'All automation routes must use footprint-aware pathfinding');
 assert.ok(context.routeDistance(start,[{x:49,y:112},{x:50,y:112}]) < context.routeDistance(start,[{x:200,y:112}]),'Distance is not waypoint count');
 console.log('Collision-aware pathfinding regressions passed');
+
+const flyMap = {...map, rectFlyBlocked(l,t,r,b) { return l < 0 || t < 0 || r > 256 || b > 256; }};
+assert.ok(context.safePathRoute(flyMap,48,112,176,112,true).length,'Flying crosses ground wall using native flight collision');
+assert.equal(context.safePathRoute(flyMap,48,112,176,112,false).length,0,'Ground movement still respects wall');
+flyMap.rectFlyBlocked = () => true;
+assert.equal(context.safePathRoute(flyMap,48,112,176,112,true).length,0,'Flight obstacles are never bypassed');

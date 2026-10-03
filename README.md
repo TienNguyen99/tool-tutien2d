@@ -19,6 +19,16 @@ phân tích nhiệm vụ và điều khiển các cơ chế có sẵn của Tu T
 
 ## Chạy project
 
+### Gói Windows chia sẻ cho bạn bè
+
+Chạy `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1` để tạo
+`dist/TienLo-1.3.65-Windows-x64.zip`. Gói có sẵn Node.js x64 và giấy phép, chỉ lấy code
+và dữ liệu bản đồ/quest công khai; không lấy tài khoản, log, browser profile hoặc cấu hình AI.
+Người nhận giải nén vào thư mục riêng và bấm `CHAY-TOOL.bat`. Launcher khởi động server ẩn,
+đợi server sẵn sàng, mở trang hướng dẫn và tạo shortcut Desktop. Giữ thư mục đã giải nén.
+Lần đầu vẫn cần Load unpacked thư mục extension trong Chrome/Edge. AI Ollama/model không đi kèm.
+Muốn cài extension qua nút Thêm tiện ích cần phát hành trên cửa hàng trình duyệt.
+
 1. Cài Node.js và chạy `start-tienlo.bat` (server phục vụ UI và lưu log).
 2. Mở `chrome://extensions`, bật Developer mode và chọn **Load unpacked**.
 3. Chọn thư mục `extension`.
@@ -72,6 +82,10 @@ Cài Ollama và tải một mô hình phù hợp với máy trước. Trong Powe
 $env:TIENLO_AI_MODEL = 'TEN_MODEL_DA_CAI'
 node tools/dev-server.cjs
 ```
+
+Local và production dùng chung giao diện trong `dist/leon-project`. Server local tự chạy `node scripts/build-cloud.cjs` khi khởi động; sau khi sửa giao diện, chạy lại lệnh build rồi refresh trình duyệt để debug. Kiểm tra local xong mới đóng gói và upload chính thư mục build đó lên Cloudflare. Không chỉnh trực tiếp file trong `dist`.
+
+Khác biệt môi trường: localhost dùng API/log local và không yêu cầu key cloud; production dùng Worker/D1 và key truy cập. Extension local dùng địa chỉ localhost, extension cloud dùng địa chỉ Pages; mã hành vi game lấy từ cùng nguồn `extension/`.
 
 Đóng server tool cũ trước khi chạy; Ollama phải đang phục vụ ở `127.0.0.1:11434`.
 Không đặt tên placeholder nguyên văn. Chưa đặt biến này thì không gọi mô hình;

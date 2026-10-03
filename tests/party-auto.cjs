@@ -1,0 +1,14 @@
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');const window={};vm.runInNewContext(fs.readFileSync('extension/party-auto.js','utf8'),{window});
+const calls=[];const G={connected:true,ready:true,selfId:'me',party:null,remotes:{near:{x:10,y:0,name:'Gần'},far:{x:999,y:0},me:{x:0,y:0}},partyInviteOrder:[],partyPending:{},partyInvite:id=>(calls.push(['invite',id]),true),partyAnswer:(accept,id)=>(calls.push(['answer',accept,id]),true),partyLeave:()=>(calls.push(['leave']),true)};
+const P={Gateway:G,CONFIG:{PARTY:{INVITE_RANGE:180}},SceneWorld:{player:{x:0,y:0},map:{data:{id:'tan_vien'}}}};let auto=window.__tienloPartyAuto.create();
+assert.equal(auto.tick(P,false,0).phase,'idle');assert.equal(calls.length,0);
+assert.equal(auto.tick(P,true,0).phase,'inviting');assert.equal(calls[0][1],'near');auto.tick(P,true,100);assert.equal(calls.length,1);
+auto.tick(P,true,2000);assert.equal(calls.length,1,'No repeated invite to same player');
+G.partyInviteOrder=['old','live'];G.partyPending={old:{inviteId:'old',expiresAt:1000},live:{inviteId:'live',name:'Đội trưởng',expiresAt:30000}};
+assert.equal(auto.tick(P,true,4000).phase,'accepting');assert.deepEqual(calls.at(-1),['answer',true,'live']);
+G.party={partyId:'p1',leaderId:'other',members:[{id:'me'},{id:'other'}]};G.partyInviteOrder=[];
+auto.tick(P,true,5000);const inviteCount=calls.filter(c=>c[0]==='invite').length;auto.tick(P,true,10000);assert.equal(calls.filter(c=>c[0]==='invite').length,inviteCount,'Member does not invite as leader');
+G.party.members.push({id:'third'});auto.tick(P,true,184999);assert.equal(calls.at(-1)[0],'answer','Membership changes do not reset join timer');assert.equal(auto.tick(P,true,185000).phase,'leaving');assert.equal(calls.at(-1)[0],'leave');
+auto.tick(P,true,186000);assert.equal(calls.filter(c=>c[0]==='leave').length,1,'Await leave acknowledgement');G.party=null;assert.equal(auto.tick(P,true,190000).phase,'cooldown');
+auto=window.__tienloPartyAuto.create();G.party={partyId:'p2',leaderId:'me',members:Array.from({length:6},(_,id)=>({id}))};assert.equal(auto.tick(P,true,0).phase,'ready');P.SceneWorld.map.data={id:'rung_mang_xa'};assert.equal(auto.tick(P,true,200000).phase,'inside');assert.equal(calls.filter(c=>c[0]==='leave').length,1,'Never leave after dungeon entry');
+console.log('Party nearby invitation, cooldown, expired/live invite, leader permissions, confirmed join timeout, leave acknowledgement and dungeon exemption passed');

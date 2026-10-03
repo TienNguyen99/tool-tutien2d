@@ -60,6 +60,10 @@ main{grid-row:2;padding:20px;min-width:0}.view{display:none;animation:reveal .24
 .session-grid,.control-mode .session-grid{grid-template-columns:repeat(4,minmax(0,1fr))}#sessionMetricNote{display:block;margin-top:10px;color:var(--muted);font-size:.72rem}@media(max-width:640px){.session-grid,.control-mode .session-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .control-mode #auto>.grid>.card.safety-settings{display:block!important}.safety-settings summary{cursor:pointer;color:var(--gold-2);font-weight:700}#safetySettings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}#safetySettings fieldset{min-width:0;border:1px solid #49765d;border-radius:5px;padding:10px}#safetySettings legend{font-size:.82rem;color:#bfe0cc}.setting-row{display:grid;grid-template-columns:minmax(0,1fr) 105px 48px;align-items:center;gap:8px;font-size:.78rem;padding:9px 0}.setting-row input[type=checkbox]{grid-column:3;width:18px;height:18px;accent-color:#75bb94}.setting-row input[type=range]{width:100%;accent-color:#75bb94}.setting-row output{text-align:right;color:#efd08a;font-variant-numeric:tabular-nums}@media(max-width:640px){#safetySettings{grid-template-columns:1fr}.setting-row{grid-template-columns:minmax(0,1fr) 90px 44px}}
 
+.background-note{font:400 13px/1.5 "Segoe UI",Arial,sans-serif;color:#aabdae;margin:0 0 10px}
+.control-mode #backgroundRun{grid-column:1/-1;min-height:38px}
+#backgroundRun[aria-pressed=true]{border-color:#75bb94;color:#bfe0cc}
+#dailyActivities p{font:400 14px/1.5 "Segoe UI",Arial,sans-serif;margin:8px 0;overflow-wrap:anywhere}
 /* Wide control dashboard: activity workspace and a compact information rail. */
 .control-mode main{max-width:1800px;padding:18px 24px}
 .control-mode #auto>.grid{grid-template-columns:minmax(0,1.7fr) minmax(340px,1fr);align-items:start;gap:16px}

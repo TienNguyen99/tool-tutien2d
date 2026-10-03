@@ -1,0 +1,10 @@
+{
+  "name": "leon-project",
+  "pages_build_output_dir": "../dist/leon-project",
+  "compatibility_date": "2026-10-03",
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "leon-project-db",
+    "database_id": "837429c9-0543-4da4-a243-9f9c37ac3128"
+  }]
+}

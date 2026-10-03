@@ -22,6 +22,17 @@ assert.equal(rows.at(-1).outcome,'fail','Timeout logs failure before backing out
 assert.equal(rows.at(-1).failureReason,'dialog_timeout');
 const plan={stepId:'step',objective:'Nhặt đồ 1/3',mapId:'map'};
 const key=context.choiceContext(plan,['First','Second']);
+const dailyWorkflowContext=vm.createContext({window:{}});
+vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'../extension/quest-workflow.js'),'utf8'),dailyWorkflowContext);
+context.window.__tienloWorkflow=dailyWorkflowContext.window.__tienloWorkflow;
+context.safe=(fn,fallback)=>{try{return fn()??fallback}catch{return fallback}};
+context.window.PNTT.Quest.seedTaskList=()=>[{def:{id:'linh_chi'},runsLeft:3}];
+const dailyPlanForMemory={dailyTask:{id:'linh_chi'},objective:'Nhận việc Dược Công ngày'};
+const dailyKey=context.choiceContext(dailyPlanForMemory,['Nhận Việc Này']);
+context.window.PNTT.Quest.seedTaskList=()=>[{def:{id:'linh_chi'},runsLeft:2}];
+assert.notEqual(context.choiceContext(dailyPlanForMemory,['Nhận Việc Này']),dailyKey,
+  'Different daily rounds do not share failed choice memory');
+assert.ok(dailyKey.includes('daily-v3'),'Old incorrect daily failures are isolated');
 assert.equal(key,context.choiceContext({...plan,objective:'Nhặt đồ 2/3'},['Second','First']),
   'Option reorder and progress counters do not erase failed choices');
 // Use the actual dialog decision function to ensure even a high base score
@@ -50,7 +61,7 @@ assert.deepEqual(clicked,['Second'],'Skip failed first option, try second after 
 now+=1500;context.clickQuestDialogDecision(plan);
 assert.deepEqual(clicked,['Second'],'Do not repeatedly click second option');
 console.log('Timeout failure and sequential option regressions passed');
-// An unknown planting option must not be excluded by recipe-only semantic rules.
+// Exploration must obey choices rejected by the prerequisite policy.
 clicked=[];now+=20000;context.dialogDecision={signature:'',observedAt:0,acted:new Set()};
 context.choiceValues.clear();context.learnedChoices.clear();
 buttons[0].textContent='Gieo Hạt Linh Điệp ×5';buttons[1].textContent='Gieo Hạt Huyết Thảo ×5';
@@ -58,7 +69,7 @@ for (const button of buttons) button.click=()=>clicked.push(button.textContent);
 context.rankDialogChoices=()=>[{index:1,score:10,reason:'weak match'},
   {index:0,score:-1000,reason:'Not a brew ingredient'},{index:2,score:-1000,reason:'back'}];
 context.clickQuestDialogDecision(plan);now+=6100;context.clickQuestDialogDecision(plan);
-assert.deepEqual(clicked,['Gieo Hạt Linh Điệp ×5'],'Unknown dialog picks first visible actionable option, not semantic rank');
+assert.deepEqual(clicked,['Gieo Hạt Huyết Thảo ×5'],'Fallback skips a hard-rejected option');
 now+=1500;context.clickQuestDialogDecision(plan);
 assert.equal(clicked.length,1,'Fallback never spams an unchanged dialog');
 console.log('Unknown planting dialog first-option regression passed');

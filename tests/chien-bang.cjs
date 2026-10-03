@@ -20,3 +20,10 @@ context.handleChienBangDialog(plan,{querySelector:()=>null},[entry]);assert.equa
 context.window.PNTT.Quest.stage=20;
 assert.equal(context.handleChienBangDialog(plan,board,[challenge]),false);
 console.log('Stage 19 board entry, challenge, pagination exclusion and cooldown passed');
+
+vm.runInContext(source.slice(source.indexOf('  function handleChienBangRound('),source.indexOf('  function handleChienBangDialog(')),context);
+let attacks=0,resets=0;context.holdQuestPosition=()=>{};context.setNativeAuto=value=>assert.equal(value,true);context.resetQuestWatchdog=()=>resets++;
+const arena={SceneWorld:{map:{data:{id:'chien_bang_dai'}}},Input:{pressAttack:()=>attacks++}};
+assert.equal(context.handleChienBangRound(arena,plan),true);assert.equal(attacks,1);assert.equal(resets,1);
+arena.SceneWorld.map.data.id='tan_vien';assert.equal(context.handleChienBangRound(arena,plan),false);assert.equal(attacks,1);
+console.log('Arena combat keeps the round active and releases control after server return');

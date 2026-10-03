@@ -228,3 +228,66 @@ context.objectiveRows=()=>[{text:'Luyện Tụ Khí Đan ở đan lô trong vư�
 plan=context.analyzeQuest();assert.equal(plan.stepId,'luyen_dan');assert.equal(plan.autoChoice,'Tụ Khí Đan');
 assert.equal(plan.craftItemId,'tu_khi_dan');
 console.log('Stage 12 brew slot plan passed');
+let oreCount=1;
+context.window.PNTT.Quest={stage:20,FORGE_STAGE:20,flags:{hang_dong_da_lay_ruong:true},
+  guidePlace:()=>({mapId:'hang_dong_co'})};
+context.window.PNTT.Inventory={count:id=>id==='huyen_thiet_khoang'?oreCount:0};
+context.objectiveRows=()=>[{text:'Rèn 1 vũ khí ở Thợ Rèn làng Tản Viên',done:false}];
+plan=context.analyzeQuest();assert.equal(plan.action,'attack');assert.equal(plan.stepId,'forge_ore');
+assert.equal(plan.mapId,'hang_dong_co');assert.equal(plan.itemIds[0],'huyen_thiet_khoang');
+oreCount=2;plan=context.analyzeQuest();assert.equal(plan.stepId,'forge_weapon');
+assert.equal(plan.ids[0],'tho_ren');assert.equal(plan.craftItemId,'thiet_kiem');
+assert.equal(plan.mapId,'tan_vien');
+context.window.PNTT.Progress={stones:49};
+assert.equal(context.analyzeQuest().stepId,'forge_stones','Missing currency must be gathered before opening forge');
+context.window.PNTT.Progress.stones=50;
+assert.equal(context.analyzeQuest().stepId,'forge_weapon');
+context.window.PNTT.Inventory.count=id=>id==='thiet_kiem'?1:0;
+assert.equal(context.analyzeQuest().stepId,'forge_equip','Owned weapon must be equipped instead of forged twice');
+context.window.PNTT.Inventory.count=id=>id==='huyen_thiet_khoang'?oreCount:0;
+context.window.PNTT.Quest.flags.ren_vu_khi_chinh=true;
+context.knowledgeHint=()=>null;
+assert.notEqual(context.analyzeQuest().stepId,'forge_weapon','Never forge a second quest weapon after completion');
+console.log('Stage 20 ore prerequisite, forge routing and completed flag passed');
+for(const dailyPlan of [{dailyTask:{shortName:'Linh Chi'}},{stepId:'daily_turn_in',autoChoice:'Giao Nguyên Liệu'}]) {
+  const choices=context.rankDialogChoices(['Mở Quầy Đổi Hạt','Đổi Gói Hạt Tụ Khí Đan','Vẫn đổi Gói Hạt Tụ Khí Đan','Giao Nguyên Liệu'],dailyPlan);
+  assert.ok(choices.filter(row=>row.index<3).every(row=>row.score===-1000),'Daily work never trades seed credits');
+}
+console.log('Daily quest excludes exchange and confirmation choices passed');
+
+context.window.PNTT={SceneWorld:{map:{data:{id:'vuon_ca_nhan'}}},Farm:{hasWaterAccess:()=>false},
+ Quest:{stage:8,guidePlace:()=>({mapId:'vuon_ca_nhan',ids:['ho_bich_thuy']})}};
+plan=context.analyzeQuest();assert.equal(plan.autoChoice,'Múc nước');assert.equal(plan.stepId,'garden_scoop_water');
+context.window.PNTT.Farm.hasWaterAccess=()=>true;
+context.window.PNTT.Quest.guidePlace=()=>({mapId:'vuon_ca_nhan',ids:['plot_1']});
+plan=context.analyzeQuest();assert.equal(plan.ids[0],'plot_1','Opened water source moves on to garden plot');
+
+context.window.PNTT.Quest.guidePlace=()=>({mapId:'vuon_ca_nhan',ids:['plot_1']});
+context.window.PNTT.Farm={state:{},isEmpty:()=>true};
+plan=context.analyzeQuest();assert.equal(plan.stepId,'garden_plant');assert.equal(plan.gardenStage8,true);
+context.window.PNTT.Farm={state:{plot_1:{seed:'hat_linh_diep',wet:true}},isEmpty:()=>false,ready:()=>false,canWater:()=>false};
+assert.equal(context.analyzeQuest().stepId,'garden_wait','Growing plants are a legitimate wait');
+
+decisions=context.rankDialogChoices(['Báo Công','Để Sau'],{objective:'Quay về gặp Đại Phu để trả nhiệm vụ',ids:['dai_phu']});
+assert.equal(decisions[0].index,0);assert.equal(decisions[0].score,210);
+decisions=context.rankDialogChoices(['Nhận Việc','Để Sau'],{objective:'Gặp Huấn Sư Huynh',ids:['ly_thanh']});
+assert.equal(decisions[0].score,210);
+context.window.PNTT={SceneWorld:{map:{data:{id:'duoc_vien'}}},Quest:{stage:20,guidePlace:()=>({mapId:'duoc_vien',ids:['dai_phu']}),
+ buocCuaQuan:()=>({id:'gap_dai_phu',place:{mapId:'duoc_vien',ids:['dai_phu']}}),canOpenSeedMenu:()=>true,
+ seedTaskList:()=>[{def:{id:'linh_chi',name:'Linh Chi',kind:'collect'},runsLeft:1}]} };
+context.config={dailyDuocCongTournament:false};
+assert.equal(context.analyzeQuest().dailyTask.id,'linh_chi','Seed credit prerequisite chooses a remaining daily job');
+
+context.reportOnce=()=>{};context.config={dailyDuocCong:true};
+context.window.PNTT={SceneWorld:{map:{data:{id:'tan_vien'}}},Inventory:{count:()=>0},Quest:{stage:20,flags:{hang_dong_da_lay_ruong:true},guidePlace:()=>null,canOpenSeedMenu:()=>true,seedTaskList:()=>[],objectives:()=>[{text:'Rèn 1 vũ khí ở Thợ Rèn',done:false}]}};
+assert.equal(context.analyzeQuest().stepId,'forge_ore');assert.equal(context.config.dailyDuocCong,false,'Exhausted daily quotas resume main quest');
+context.config.dailyDuocCong=true;context.window.PNTT.Quest.seedTaskInfo=()=>({kind:'tournament'});
+assert.equal(context.analyzeQuest().stepId,'forge_ore','Pending manual tournament must not block main quest');
+
+const newMaps={new_a:{id:'new_a',portals:[{toMap:'new_b',tx:2,ty:3}]},new_b:{id:'new_b',portals:[{toMap:'new_c',tx:4,ty:5}]},new_c:{id:'new_c',portals:[]}};
+context.window.PNTT={MapData:{get:id=>newMaps[id],stale:{id:'new_a',portals:[{toMap:'wrong_map'}]}},SceneWorld:{map:{data:newMaps.new_a,portals:newMaps.new_a.portals}}};
+assert.deepEqual(Array.from(context.mapRoute('new_a','new_c')),['new_a','new_b','new_c'],'Discover new maps recursively through native get');
+assert.equal(context.mapRoute('new_a','wrong_map'),null,'Live map portals override stale enumerable definitions');
+context.window.PNTT.SceneWorld.map={data:{id:'tan_vien',portals:[]},portals:[]};
+assert.equal(context.mapRoute('tan_vien','mieu_hoang'),null,'Authoritative empty portals must not gain invented fallback edges');
+console.log('New map discovery, live precedence and authoritative graph regressions passed');

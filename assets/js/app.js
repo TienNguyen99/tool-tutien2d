@@ -4,6 +4,7 @@ import { gameRuntimeHook } from './runtime-hook.js';
 import { queueFailure } from './failure-log.js';
 import { initSettings } from './settings.js';
 import { initLogViewer } from './log-viewer.js';
+import { renderDailyActivities } from './daily-view.js';
 const memorySynced = new WeakSet();
 async function syncChoiceMemory(source) {
   if (!source || memorySynced.has(source)) return;
@@ -29,6 +30,7 @@ function toast(message='Đã lưu trên thiết bị'){const el=document.querySe
 let lastLiveAt=0;
 const LIVE_TIMEOUT_MS=15000;
 let connectionLost=false;
+let lastWakeAt=0;
 let lastQuestKey=state.live?[state.live.questStage,...(state.live.objectives||[])].join('|'):'';
 const ruleCooldown={};
 const addAutoEvent=initLogViewer(document.querySelector('#autoLog'));
@@ -56,6 +58,8 @@ function evaluateAuto(data){
   document.querySelector('#liveAutoAdvice').innerHTML='<strong>Khuyến nghị hiện tại:</strong> '+advice;
 }
 function renderLive(data,isFresh=false){
+  renderDailyActivities(dailyPanel,data?.dailyActivities);
+  if(data?.dailyActivities)showBackground(data.dailyActivities.backgroundEnabled);
   if(!data)return;
   const put=(id,value)=>{document.querySelector(id).textContent=value||'—'};
   put('#charName',data.name);put('#charRealm',data.realm);put('#charMap',data.map);put('#liveName',data.name);put('#liveStones',data.stones);put('#controlName',data.name);put('#controlRealm',data.realm);put('#controlMap',data.map);
@@ -87,8 +91,21 @@ document.querySelector('#copyBookmarklet').addEventListener('click',async()=>{tr
 document.querySelector('#bookmarklet').addEventListener('click',e=>{e.preventDefault();toast('Hãy kéo linh phù này lên thanh dấu trang')});
 let gameWindow=null;
 const commandButtons=['#startQuestAuto','#startFarmAuto','#stopGameAuto'].map(id=>document.querySelector(id));
+const backgroundButton=document.createElement('button');backgroundButton.className='btn ghost';backgroundButton.id='backgroundRun';
+document.querySelector('#stopGameAuto').after(backgroundButton);
+const backgroundNote=document.createElement('p');backgroundNote.className='background-note';
+backgroundNote.textContent='Chạy trong nền giữ nhịp game khi đổi tab. Giữ tab game mở; trình duyệt đóng băng tab hoặc máy ngủ sẽ làm Auto tạm ngưng.';
+document.querySelector('#autoLiveState').parentElement.before(backgroundNote);
+const dailyPanel=document.createElement('article');dailyPanel.className='card span-12';dailyPanel.id='dailyActivities';
+const dailyRail=document.querySelector('.control-rail');
+if(dailyRail)dailyRail.prepend(dailyPanel);else document.querySelector('.auto-live').append(dailyPanel);
+function showBackground(enabled){backgroundButton.textContent=enabled?'✓ Đang chạy trong nền':'Chạy trong nền';backgroundButton.setAttribute('aria-pressed',String(enabled));}
+showBackground(!!state.autoRules.backgroundRun);
+backgroundButton.addEventListener('click',()=>{
+  state.autoRules.backgroundRun=!state.autoRules.backgroundRun;persist();showBackground(state.autoRules.backgroundRun);sendGameCommand('config');
+});
 document.querySelector('#startQuestAuto').textContent='▶ Auto Quest';document.querySelector('#startFarmAuto').textContent='⚔ Auto Farm';document.querySelector('#stopGameAuto').textContent='■ Dừng';
-function setConnected(connected){document.body.classList.toggle('connected',connected);commandButtons.forEach(button=>button.disabled=!connected)}
+function setConnected(connected){document.body.classList.toggle('connected',connected);commandButtons.forEach(button=>button.disabled=!connected);backgroundButton.disabled=!connected||!state.live?.dailyActivities}
 function setActiveMode(nextMode){commandButtons.forEach(button=>button.classList.remove('mode-active'));if(nextMode==='quest')document.querySelector('#startQuestAuto').classList.add('mode-active');else if(nextMode==='farm')document.querySelector('#startFarmAuto').classList.add('mode-active')}
 setConnected(false);
 function getAutoConfig(){return {...state.autoRules,priority:state.priority,skillSlots:String(state.autoRules.skillSlots||'').split(',').map(Number).filter(x=>x>=1&&x<=8)}}
@@ -109,14 +126,14 @@ window.addEventListener('message',event=>{
   if(event.data?.type==='TIENLO_AUTO_STATUS'){const message=event.data.message||'Trạng thái hành công đã biến đổi';document.querySelector('#autoLiveState').textContent=message;if(['quest','farm','off','safe'].includes(event.data.mode))setActiveMode(event.data.mode);if(event.data.mode==='ready')document.querySelector('#liveStatus').textContent='Đã bắt tay · chờ dữ liệu';if(event.data.mode==='error'){document.querySelector('#liveStatus').textContent='Hook gặp lỗi';document.querySelector('#liveChip').classList.remove('live')}addAutoEvent(message,event.data.mode==='error');return}
   if(!['TIENLO_LIVE_V1','TIENLO_LIVE_V2','TIENLO_LIVE_V3'].includes(event.data?.type)||!event.data.payload)return;
   gameWindow=event.source;
-  const allowed=['source','hookVersion','name','realm','stones','hp','mp','sp','armor','hpPercent','spPercent','pos','x','y','fps','map','mapId','questId','questStage','questStageIndex','objectives','questPlan','questWatchdog','xpLabel','xpPercent','playerState','downed','autoOn','online','enemiesAlive','target','targetDistance','mode','session'];const clean={};allowed.forEach(key=>clean[key]=event.data.payload[key]);
+  const allowed=['source','hookVersion','name','realm','stones','hp','mp','sp','armor','hpPercent','spPercent','pos','x','y','fps','map','mapId','questId','questStage','questStageIndex','objectives','questPlan','questWatchdog','dailyActivities','xpLabel','xpPercent','playerState','downed','autoOn','online','enemiesAlive','target','targetDistance','mode','session'];const clean={};allowed.forEach(key=>clean[key]=event.data.payload[key]);
   const reconnected=connectionLost;
   state.live=clean;lastLiveAt=Date.now();connectionLost=false;setConnected(true);setActiveMode(clean.mode);document.querySelector('#returnGame').hidden=false;persist();renderLive(clean,true);evaluateAuto(clean);
   if(reconnected){document.querySelector('#autoLiveState').textContent='Đã kết nối lại · '+(clean.mode==='quest'?'Auto Quest':clean.mode==='farm'?'Auto Farm':'đang theo dõi');addAutoEvent('Đã kết nối lại tab game')}
 });
 setInterval(()=>{
   pingGame();
-  if(lastLiveAt&&Date.now()-lastLiveAt>LIVE_TIMEOUT_MS&&!connectionLost){
+  if(!document.hidden && Date.now()-lastWakeAt>LIVE_TIMEOUT_MS && lastLiveAt&&Date.now()-lastLiveAt>LIVE_TIMEOUT_MS&&!connectionLost){
     connectionLost=true;setConnected(false);
     document.querySelector('#liveStatus').textContent='Đang kết nối lại tab game';
     document.querySelector('#liveChip').classList.remove('live');
@@ -125,9 +142,10 @@ setInterval(()=>{
   }
 },3000);
 pingGame();
-window.addEventListener('focus',pingGame);
-window.addEventListener('pageshow',pingGame);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)pingGame()});
+function resumeLink(){lastWakeAt=Date.now();pingGame();}
+window.addEventListener('focus',resumeLink);
+window.addEventListener('pageshow',resumeLink);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)resumeLink()});
 document.querySelectorAll('.nav-btn').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.nav-btn,.view').forEach(x=>x.classList.remove('active'));btn.classList.add('active');document.querySelector('#'+btn.dataset.view).classList.add('active')}));
 const timerEnds=[...document.querySelectorAll('.timer[data-seconds]')].map(el=>({el,end:Date.now()+Number(el.dataset.seconds)*1000}));
 function tick(){timerEnds.forEach(({el,end})=>{const s=Math.max(0,Math.floor((end-Date.now())/1000));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;el.textContent=s?`Hồi sau ${h?String(h).padStart(2,'0')+':':''}${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`:'Có thể xuất hiện'});const now=new Date();let target=new Date(now);target.setDate(now.getDate()+((6-now.getDay()+7)%7));target.setHours(21,0,0,0);if(target<=now)target.setDate(target.getDate()+7);const d=target-now,days=Math.floor(d/86400000),hours=Math.floor(d%86400000/3600000);document.querySelector('#saturdayTimer').textContent=`Còn ${days} ngày ${hours} giờ`}

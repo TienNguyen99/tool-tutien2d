@@ -3,6 +3,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
+// Debug the same generated UI that is uploaded to Pages, not a second layout.
+require('node:child_process').execFileSync(process.execPath,[path.join(root,'scripts/build-cloud.cjs')],{cwd:root,stdio:'pipe'});
+const uiRoot=path.join(root,'dist','leon-project');
 const port = Number.parseInt(process.argv[2] || "8765", 10);
 const logDir = process.env.TIENLO_LOG_DIR || path.join(root, 'data', 'logs');
 const failureFile = path.join(logDir, 'quest-failures.jsonl');
@@ -28,6 +31,15 @@ const aiHandler = require('./ai-planner.cjs').createHandler({port,logDir,failure
 const questLineHandler = require('./quest-line.cjs').handler({root,logDir,failureFile,port});
 const server = http.createServer((request, response) => {
   const requestPath = new URL(request.url, "http://127.0.0.1").pathname;
+  if(requestPath==='/assets/js/cloud-session.js'){
+    // Local APIs use the local log store. Cloud authentication remains enforced
+    // by the production worker; this shim is only served by the loopback server.
+    response.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-store'}).end('window.__leonReady=Promise.resolve();');return;
+  }
+  if(requestPath==='/api/package-info' && request.method==='GET'){
+    const version=JSON.parse(fs.readFileSync(path.join(root,'extension/manifest.json'),'utf8')).version;
+    response.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({app:'tienlo-companion',version}));return;
+  }
   if(requestPath==='/api/quest-line') { questLineHandler(request,response); return; }
   if(requestPath==='/api/ai/plan') { aiHandler(request,response); return; }
   if(requestPath==='/api/accounts'){
@@ -106,10 +118,13 @@ const server = http.createServer((request, response) => {
     response.writeHead(403).end('Forbidden');
     return;
   }
-  const relativePath = requestPath === "/" ? "index.html" : requestPath.slice(1);
-  const filePath = path.resolve(root, relativePath);
+  let relativePath = requestPath === "/" ? "index.html" : requestPath.slice(1);
+  if(['setup','quest-line','patch-notes'].includes(relativePath))relativePath+='.html';
+  const sharedUI=relativePath.startsWith('assets/') || ['index.html','setup.html','quest-line.html','patch-notes.html','patch-notes.json'].includes(relativePath);
+  const staticRoot=sharedUI?uiRoot:root;
+  const filePath = path.resolve(staticRoot, relativePath);
 
-  if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) {
+  if (filePath !== staticRoot && !filePath.startsWith(`${staticRoot}${path.sep}`)) {
     response.writeHead(403).end("Forbidden");
     return;
   }
