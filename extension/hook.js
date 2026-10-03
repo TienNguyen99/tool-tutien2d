@@ -2,7 +2,7 @@
   'use strict';
 
   if (window.__tienloExtensionHook) return;
-  const HOOK_VERSION = '1.3.45';
+  const HOOK_VERSION = '1.3.49';
   window.__tienloExtensionHook = HOOK_VERSION;
 
   const HELPER_URL = 'http://127.0.0.1:8765/index.html';
@@ -25,6 +25,7 @@
   let mode = 'off';
   let skillIndex = 0;
   let pendingChoice = null;
+  let chienBangAttemptAt = 0;
   const learnedChoices = new Map();
   const choiceValues = new Map();
   const worldMaps = new Map();
@@ -214,9 +215,10 @@
   }
 
   function sendState() {
+    // Optional bookkeeping must never prevent the connection heartbeat.
+    safe(() => settleChoiceMemory());
+    safe(() => saveWorldMaps());
     try {
-      settleChoiceMemory();
-      saveWorldMaps();
       post({ type: 'TIENLO_LIVE_V3', payload: readState(), sentAt: Date.now() });
     } catch (error) {
       report('error', `Hook lỗi: ${error?.message || String(error)}`);
@@ -1029,6 +1031,11 @@
 
   function settleChoiceMemory(forceFailure = '') {
     if (!pendingChoice) return;
+    if (window.PNTT?.Quest?.stage === 19 && /tan tu chien bang/.test(fold(pendingChoice.label)) &&
+        document.querySelector?.('#dialog .cb-panel')?.getClientRects().length) {
+      pendingChoice = null;
+      return;
+    }
     const progress = JSON.stringify([window.PNTT?.Quest?.stage, readHud().objectives]);
     const workflow = pendingChoice.workflow;
     const stepSucceeded = workflow && safe(() => window.__tienloWorkflow?.evaluate(workflow.step,workflow.before,
@@ -1080,8 +1087,39 @@
     if (button) rememberDialogClick(button);
   }, true);
 
+  function handleChienBangDialog(plan, root, buttons) {
+    const P = window.PNTT || {};
+    const Q = P.Quest;
+    if (!Q || Q.stage !== (Q.TAN_TU_CHIEN_BANG_STAGE || 19) ||
+        Q.flags?.[Q.TAN_TU_CHIEN_BANG_FLAG] ||
+        !/dau 1 tran.*chien bang/.test(fold(String(plan?.objective || plan?.targetLabel || '').toLowerCase()))) return false;
+    if (root.querySelector('.cb-panel')) {
+      // Opening the board is an intermediate step, not a failed quest action.
+      if (pendingChoice && /tan tu chien bang/.test(fold(pendingChoice.label))) pendingChoice = null;
+      dialogDecision.acted.clear();
+      dialogDecision.ai = null;
+      if (Date.now() - chienBangAttemptAt < 8000) return true;
+      const challenge = [...buttons].reverse().find(button => button.matches('.cb-fight') && !button.disabled);
+      if (!challenge) {
+        reportOnce('chienbang-unavailable','quest','CHIẾN BẢNG · chưa có đối thủ khả dụng hoặc đã hết lượt',5000);
+        return true;
+      }
+      chienBangAttemptAt = Date.now();
+      lastDialogChoiceAt = Date.now();
+      challenge.click();
+      report('quest','CHIẾN BẢNG · đã chọn Khiêu chiến, chờ game xác nhận trận đấu');
+      return true;
+    }
+    const entry = buttons.find(button => /^tan tu chien bang/.test(fold(button.textContent.trim())));
+    if (!entry) return false;
+    lastDialogChoiceAt = Date.now();
+    entry.click();
+    report('quest','CHIẾN BẢNG · mở bảng để chọn đối thủ');
+    return true;
+  }
+
   function clickQuestDialogDecision(plan) {
-    if (Date.now() - lastDialogChoiceAt < 1400) return false;
+    if (Date.now() - lastDialogChoiceAt < 700) return false;
     const root = document.querySelector('#dialog');
     if (!root || root.classList.contains('hidden') || !root.getClientRects().length) return false;
     const visibleButton = button => button && !button.disabled && button.getClientRects().length &&
@@ -1092,6 +1130,7 @@
     const buttons = allButtons.filter(visibleButton).filter(button =>
       button.getAttribute('role') !== 'tab' &&
       (plan?.stepId === 'luyen_dan' || !button.matches('.forge-slot')));
+    if (handleChienBangDialog(plan, root, buttons)) return true;
     // Empty interaction panels must not trap the bot while it is still approaching.
     const isBack = button => button.id === 'dialog-close' || /^(lui buoc|quay lai|dong|✕|×)$/.test(fold(button.textContent.trim()));
     if (buttons.length && buttons.every(isBack)) {
@@ -1113,7 +1152,7 @@
       reportOnce('quest-dialog-analyze', 'quest', 'PHÂN TÍCH · đối chiếu lựa chọn với bước nhiệm vụ', 2500);
       return true;
     }
-    if (Date.now() - dialogDecision.observedAt < 1200) return true;
+    if (Date.now() - dialogDecision.observedAt < 600) return true;
     const waitedMs = Date.now() - dialogDecision.observedAt;
     if (waitedMs >= 16000 || (waitedMs >= 8000 && dialogDecision.acted.has(signature))) {
       const back = buttons.find(button => button.id === 'dialog-close')
@@ -1860,13 +1899,18 @@
     scene.approach = null;
     const interactionDistance = Math.hypot(target.obj.x - player.x, approach.centerY - player.y);
     if (interactionDistance <= approach.reach) {
+      safe(() => player.setPath?.([]));
+      lastQuestTarget = target.key;
+      lastQuestRouteAt = now;
+      if (typeof P.Input?.pressInteract === 'function') {
+        P.Input.pressInteract();
+        return reportOnce(`quest-arrived:${target.key}`, 'quest',
+          `TƯƠNG TÁC E · ${plan.targetLabel} · chờ game xử lý`, 1800);
+      }
       scene.approach = {
         obj: target.obj,
         until: (+P.Game?.time || 0) + (+P.CONFIG?.TARGET?.APPROACH_TIME || 8)
       };
-      safe(() => player.setPath?.([]));
-      lastQuestTarget = target.key;
-      lastQuestRouteAt = now;
       return reportOnce(`quest-arrived:${target.key}`, 'quest',
         `ĐÃ LẠI GẦN · đang tương tác ${plan.targetLabel}`, 1800);
     }
@@ -2340,6 +2384,12 @@
       ? [setInterval(questTick, 1000), setInterval(safetyTick, 1000)]
       : [setInterval(() => combatTick('farm'), 1500), setInterval(move, 9000), setInterval(safetyTick, 1000)];
     timers.push(setInterval(kiteTick, 150));
+    // Poll only open dialogs more often; movement and combat keep their own cadence.
+    if (autoMode === 'quest') timers.push(setInterval(() => {
+      if (mode !== 'quest' || meditating || recoveryState.phase !== 'idle' ||
+          retreatState.until > Date.now() || reviveState.since || !visibleDialog()) return;
+      questTick();
+    }, 250));
     report(autoMode, autoMode === 'quest' ? 'Đang tự hành tiên vụ' : 'Đang tuần sát yêu thú');
     if (autoMode === 'quest') questTick(true);
     else {
@@ -2352,6 +2402,8 @@
   function onMessage(event) {
     if (event.origin === HELPER_ORIGIN && event.data?.type === 'TIENLO_LINK_PING') {
       helperWindow = event.source;
+      if (!window.__tienloExtensionLiveTimer)
+        window.__tienloExtensionLiveTimer = setInterval(sendState, 1000);
       sendState();
       return;
     }
@@ -2407,5 +2459,9 @@
       localStorage.getItem('tienlo-quest-failures-v1') || '[]'), []) };
   setTimeout(() => refreshEncyclopediaKnowledge(true), 1500);
   window.addEventListener('message', onMessage);
+  window.addEventListener('pageshow', () => { if (helperWindow) sendState(); });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && helperWindow) sendState();
+  });
   installButton();
 })();

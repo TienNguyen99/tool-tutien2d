@@ -109,7 +109,7 @@ window.addEventListener('message',event=>{
   if(reconnected){document.querySelector('#autoLiveState').textContent='Đã kết nối lại · '+(clean.mode==='quest'?'Auto Quest':clean.mode==='farm'?'Auto Farm':'đang theo dõi');addAutoEvent('Đã kết nối lại tab game')}
 });
 setInterval(()=>{
-  if(!lastLiveAt||Date.now()-lastLiveAt>3000)pingGame();
+  pingGame();
   if(lastLiveAt&&Date.now()-lastLiveAt>LIVE_TIMEOUT_MS&&!connectionLost){
     connectionLost=true;setConnected(false);
     document.querySelector('#liveStatus').textContent='Đang kết nối lại tab game';
@@ -119,6 +119,9 @@ setInterval(()=>{
   }
 },3000);
 pingGame();
+window.addEventListener('focus',pingGame);
+window.addEventListener('pageshow',pingGame);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)pingGame()});
 document.querySelectorAll('.nav-btn').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.nav-btn,.view').forEach(x=>x.classList.remove('active'));btn.classList.add('active');document.querySelector('#'+btn.dataset.view).classList.add('active')}));
 const timerEnds=[...document.querySelectorAll('.timer[data-seconds]')].map(el=>({el,end:Date.now()+Number(el.dataset.seconds)*1000}));
 function tick(){timerEnds.forEach(({el,end})=>{const s=Math.max(0,Math.floor((end-Date.now())/1000));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;el.textContent=s?`Hồi sau ${h?String(h).padStart(2,'0')+':':''}${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`:'Có thể xuất hiện'});const now=new Date();let target=new Date(now);target.setDate(now.getDate()+((6-now.getDay()+7)%7));target.setHours(21,0,0,0);if(target<=now)target.setDate(target.getDate()+7);const d=target-now,days=Math.floor(d/86400000),hours=Math.floor(d%86400000/3600000);document.querySelector('#saturdayTimer').textContent=`Còn ${days} ngày ${hours} giờ`}

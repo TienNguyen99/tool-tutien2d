@@ -6,6 +6,7 @@ const input={key:'quest8',quest:'Thu hái Linh Điệp',options:['Gieo Linh Đi�
   const fake=async()=>{calls++;return {ok:true,json:async()=>({message:{content:JSON.stringify({action:'select_dialog_option',optionIndex:0,confidence:.9,reason:'Đúng cây quest'})}})}};
   const planner=createPlanner({model:'test',fetchImpl:fake});
   assert.equal((await planner(input)).source,'llm');assert.equal((await planner(input)).decision.optionIndex,0);
+  assert.equal((await planner(input)).source,'llm');
   assert.equal(calls,1,'Repeated context uses cache');
   for(const index of [2,3,99])assert.equal(validate({action:'select_dialog_option',optionIndex:index,confidence:1},sanitize(input)),null);
   assert.equal(validate({action:'execute_code',optionIndex:0,confidence:1},sanitize(input)),null);

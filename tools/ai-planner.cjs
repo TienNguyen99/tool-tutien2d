@@ -54,8 +54,23 @@ function createPlanner({model=process.env.TIENLO_AI_MODEL,visionModel=process.en
     finally {busy=false;}
   };
 }
+function createMemoryReader(failureFile) {
+  let stamp='',rows=[];
+  return () => {
+    let stat;
+    try { stat=fs.statSync(failureFile); }
+    catch(error) { if(error.code==='ENOENT'){stamp='';rows=[];return rows;} throw error; }
+    const nextStamp=`${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+    if(nextStamp!==stamp){
+      rows=fs.readFileSync(failureFile,'utf8').split('\n').slice(-2001)
+        .flatMap(line=>{try{return [JSON.parse(line)]}catch{return []}}).slice(-2000);
+      stamp=nextStamp;
+    }
+    return rows;
+  };
+}
 function createHandler({port,logDir,failureFile}) {
-  const plan=createPlanner({readMemory:()=>fs.existsSync(failureFile)?fs.readFileSync(failureFile,'utf8').split('\n').flatMap(line=>{try{return [JSON.parse(line)]}catch{return []}}).slice(-2000):[]});
+  const plan=createPlanner({readMemory:createMemoryReader(failureFile)});
   return (request,response)=>{
     const reply=(code,data)=>response.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store'}).end(JSON.stringify(data));
     if(request.headers.origin!==`http://127.0.0.1:${port}`&&!/^chrome-extension:\/\/[a-p]{32}$/.test(request.headers.origin||''))return reply(403,{error:'Forbidden'});
@@ -68,4 +83,4 @@ function createHandler({port,logDir,failureFile}) {
     }catch{reply(400,{error:'Invalid situation or log unavailable'});}});
   };
 }
-module.exports={createPlanner,createHandler,validate,sanitize,validateImage};
+module.exports={createPlanner,createHandler,createMemoryReader,validate,sanitize,validateImage};

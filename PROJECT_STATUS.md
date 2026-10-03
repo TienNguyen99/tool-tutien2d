@@ -2,7 +2,15 @@
 
 ## Phiên bản hiện tại
 
-- Extension: `1.3.45`
+- Extension: `1.3.49`
+
+- 1.3.49: Stage 19 có handler riêng mở Tán Tu Chiến Bảng rồi bấm .cb-fight khả dụng; bỏ phân trang và không coi mở bảng là quest thất bại. Cooldown khiêu chiến 8s. Fix từ log 2026-10-03; chưa xác minh trận thật hoàn thành.
+
+- 1.3.48: Khi đã trong tầm mục tiêu quest, dùng Input.pressInteract (cùng luồng phím E của game), giữ chọn target và cooldown 3,5s. Chỉ fallback scene.approach khi runtime thiếu API E. Đã đối chiếu input.js/world.js công khai; chưa kiểm chứng trực tiếp từng quest.
+
+- 1.3.47: Dashboard ping mỗi 3s và khi focus/pageshow/hiện tab; game phục hồi timer khi bắt tay và gửi ngay khi hiện tab. Lỗi lưu bộ nhớ/map không chặn heartbeat. Test reconnect mô phỏng đạt; cần kiểm chứng throttle tab nền trên Chrome thật.
+
+- 1.3.46: Cache lịch sử AI theo metadata file, nạp lại khi log thay đổi. Hội thoại ổn định 600ms, cách click 700ms; kiểm tra hộp thoại đang mở mỗi 250ms. Nhịp quest/combat nền và giới hạn fallback, chống bấm lặp giữ nguyên. Chưa benchmark trực tiếp trong game.
 
 - 1.3.45: Dashboard ping tab game qua `window.opener`/liên kết cũ để bắt tay lại sau khi reload; game nhận ping và gửi state mới mà không tự bật Auto. Ngưỡng mất đồng bộ 15 giây, chỉ ghi một lần mỗi đợt và tự khôi phục trạng thái khi có dữ liệu. Clone tiếp tục thử heartbeat khi lỗi tạm thời, dừng an toàn nếu mất server quá 30 giây; server giữ trạng thái online tối đa 30 giây và thu hồi slot clone sau 2 phút im lặng. Test mô phỏng handshake và heartbeat đạt; chưa xác minh trực tiếp việc trình duyệt throttle tab nền hay game server mất kết nối.
 

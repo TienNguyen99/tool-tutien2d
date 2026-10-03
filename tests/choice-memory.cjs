@@ -40,6 +40,7 @@ context.document.querySelector=()=>root;
 context.rankDialogChoices=()=>[{index:0,score:180,reason:'match'},{index:1,score:0,reason:'test'},{index:2,score:-1000,reason:'back'}];
 context.dialogChoiceLabel=b=>b.textContent;
 context.handleBachKhoaDialog=()=>false;context.safe=(fn,fallback)=>{try{return fn()??fallback}catch{return fallback}};
+context.handleChienBangDialog=()=>false;
 context.report=()=>{};context.config={aiPlanner:false};
 const dialogKey=context.choiceContext(plan,buttons.map(b=>b.textContent));
 context.choiceValues.set(JSON.stringify([dialogKey,'First']),-4);

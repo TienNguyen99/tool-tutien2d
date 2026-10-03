@@ -19,6 +19,7 @@ let stateSends = 0;
 const linked = vm.createContext({
   HELPER_ORIGIN: 'http://127.0.0.1:8765', helperWindow: null,
   sendState: () => { stateSends++; },
+  window: {}, setInterval: () => 123,
 });
 vm.runInContext(between('  function onMessage(', '  function connect('), linked);
 const dashboard = {};
@@ -27,6 +28,19 @@ assert.equal(stateSends, 0, 'Only the companion origin may reconnect');
 linked.onMessage({ origin: linked.HELPER_ORIGIN, data: { type: 'TIENLO_LINK_PING' }, source: dashboard });
 assert.equal(linked.helperWindow, dashboard, 'Reloaded dashboard window is attached again');
 assert.equal(stateSends, 1, 'Reconnect sends fresh state without starting automation');
+assert.equal(linked.window.__tienloExtensionLiveTimer,123,'Handshake restores missing live timer');
+linked.onMessage({origin:linked.HELPER_ORIGIN,data:{type:'TIENLO_LINK_PING'},source:dashboard});
+assert.equal(stateSends,2,'Every ping returns fresh data');
+
+const liveMessages=[];
+const live=vm.createContext({safe:fn=>{try{return fn()}catch{}},
+  settleChoiceMemory:()=>{throw Error('Storage unavailable')},
+  saveWorldMaps:()=>{throw Error('Storage unavailable')},
+  readState:()=>({name:'Test'}),post:message=>liveMessages.push(message),
+  report:()=>{throw Error('Heartbeat must still succeed')}});
+vm.runInContext(between('  function sendState()', '  const cloneSessionId'),live);
+live.sendState();
+assert.equal(liveMessages[0].type,'TIENLO_LIVE_V3','Bookkeeping failure cannot interrupt live data');
 
 let now = 1000;
 let shouldFail = false;

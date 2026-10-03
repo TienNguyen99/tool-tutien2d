@@ -1,5 +1,5 @@
 export const STORAGE_KEY = 'tien-lo-companion-v1';
-export const EXPECTED_HOOK_VERSION = '1.3.45';
+export const EXPECTED_HOOK_VERSION = '1.3.49';
 
 export const defaults = {
   tasks: [false, false, false],
